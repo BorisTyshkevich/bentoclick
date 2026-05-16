@@ -3,6 +3,10 @@
 CH_HTTP_PORT ?= 18123
 CH_TCP_PORT  ?= 19000
 
+# Prefer the `$(DOCKER_COMPOSE)` v2 plugin if available, else fall back to v1.
+DOCKER_COMPOSE := $(shell $(DOCKER_COMPOSE) version >/dev/null 2>&1 && echo "$(DOCKER_COMPOSE)" || echo "docker-compose")
+PIP            := $(shell command -v pip >/dev/null 2>&1 && echo pip || echo pip3)
+
 help:
 	@echo "bentoclick — make targets"
 	@echo ""
@@ -15,12 +19,20 @@ help:
 	@echo "  make clean         make down + remove caches and coverage artifacts"
 	@echo "  make install-deps  pip install -r tests/requirements.txt && npm --prefix tests install"
 
-install-deps:
-	pip install -r tests/requirements.txt
+VENV_DIR := tests/.venv
+VENV_PY  := $(VENV_DIR)/bin/python
+VENV_PIP := PIP_USER=0 $(VENV_DIR)/bin/pip
+
+$(VENV_DIR):
+	python3 -m venv $(VENV_DIR)
+	$(VENV_PIP) install --upgrade pip >/dev/null
+
+install-deps: $(VENV_DIR)
+	$(VENV_PIP) install -r tests/requirements.txt
 	cd tests && npm install
 
 up:
-	docker compose -f tests/docker-compose.test.yml up -d
+	$(DOCKER_COMPOSE) -f tests/docker-compose.test.yml up -d
 	@echo "Waiting for ClickHouse on :$(CH_HTTP_PORT)..."
 	@for i in $$(seq 1 30); do \
 	  curl -fsS "http://localhost:$(CH_HTTP_PORT)/ping" >/dev/null 2>&1 && exit 0; \
@@ -29,10 +41,10 @@ up:
 	echo "ClickHouse did not become healthy in 30s" >&2; exit 1
 
 down:
-	docker compose -f tests/docker-compose.test.yml down -v
+	$(DOCKER_COMPOSE) -f tests/docker-compose.test.yml down -v
 
 test-schema: up
-	pytest tests/schema -v
+	$(VENV_PY) -m pytest tests/schema -v
 	@$(MAKE) down
 
 test-runtime:

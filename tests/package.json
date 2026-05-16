@@ -1,0 +1,16 @@
+{
+  "name": "bentoclick-tests",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Test harness for the bentoclick runtime (vitest + happy-dom).",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.8",
+    "happy-dom": "^15.11.0",
+    "vitest": "^2.1.8"
+  }
+}

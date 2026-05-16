@@ -1,0 +1,26 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3
+    container_name: bentoclick-ch-test
+    ports:
+      - "18123:8123"
+      - "19000:9000"
+    environment:
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DB: default
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    tmpfs:
+      - /var/lib/clickhouse
+      - /var/log/clickhouse-server
+
+networks:
+  default:
+    external: true
+    name: ${DOCKER_NETWORK:-bridge}
