@@ -60,9 +60,52 @@ CREATE TABLE IF NOT EXISTS ${DB}.dashboards_raw
 )
 ENGINE = Null;
 
--- Identity MV for v1 step 3 — sanitize_panel is added in step 4.
--- Once sanitize_panel exists this becomes:
---   panels => arrayMap(p -> ${DB}.sanitize_panel(p), panels)
+-- sanitize_panel — strip dangerous HTML constructs from a panel's
+-- JSON representation. Applies regex-based scrubbing on the canonical
+-- JSON string and casts back to JSON. The deletions only affect
+-- *contents* of string values (HTML inside the panel's `html` field);
+-- structural quotes and braces are preserved, so the JSON stays valid.
+--
+-- Threats handled (case-insensitive, single-line):
+--   <script>...</script>       — strip whole element
+--   <script .../>              — strip self-closing form
+--   <iframe>...</iframe>       — strip whole element
+--   <iframe ...> (orphan)      — strip opening tag (defensive)
+--   <object>...</object>       — strip whole element
+--   <embed .../>               — strip void element
+--   on*="..." / on*='...' /
+--   on*=unquoted               — strip event-handler attributes
+--   javascript:                — neutralize URL protocol
+--
+-- `type='script'` panels are passed through unchanged in v1 — viewer
+-- ACL gating is deferred to v2.
+-- toJSONString() escapes `/` as `\/` inside string values (per JSON
+-- spec, optional but conventional). The close-tag patterns therefore
+-- match an optional backslash before each `/`. The on*= patterns
+-- match JSON-escaped double-quoted values (`\"...\"`) and raw
+-- single-quoted values (`'...'`, which JSON leaves untouched).
+CREATE OR REPLACE FUNCTION sanitize_panel AS (panel) -> CAST(
+    replaceRegexpAll(
+        replaceRegexpAll(
+            replaceRegexpAll(
+                replaceRegexpAll(
+                    replaceRegexpAll(
+                        replaceRegexpAll(
+                            replaceRegexpAll(
+                                replaceRegexpAll(
+                                    replaceRegexpAll(
+                                        toJSONString(panel),
+                                        '(?is)<script\\b[^>]*>.*?<\\\\?/script[^>]*>', ''),
+                                    '(?is)<script\\b[^>]*\\\\?/>', ''),
+                                '(?is)<iframe\\b[^>]*>.*?<\\\\?/iframe[^>]*>', ''),
+                            '(?is)<iframe\\b[^>]*>', ''),
+                        '(?is)<object\\b[^>]*>.*?<\\\\?/object[^>]*>', ''),
+                    '(?is)<embed\\b[^>]*\\\\?/?>', ''),
+                '(?i)\\bon[a-z]+\\s*=\\s*\\\\"[^\\\\"]*\\\\"', ''),
+            '(?i)\\bon[a-z]+\\s*=\\s*''[^'']*''', ''),
+        '(?i)javascript:', '')
+    AS JSON);
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS ${DB}.dashboards_mv TO ${DB}.dashboards AS
 SELECT
     slug,
@@ -71,7 +114,7 @@ SELECT
     concurrent,
     spec_version,
     params,
-    panels,
+    arrayMap(p -> sanitize_panel(p), panels) AS panels,
     meta,
     tags,
     currentUser() AS owner,
