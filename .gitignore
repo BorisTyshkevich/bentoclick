@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Node / Vitest
+node_modules/
+.vitest/
+tests/runtime/coverage/
+coverage/
+*.tsbuildinfo
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config / secrets
+.env
+.env.local
+*.local
+config/config.json
+config/client.json
+
+# Docker / test artifacts
+tests/.cache/
+tests/clickhouse-data/
+
+# Build outputs
+dist/
+build/
+*.tar.gz
+*.zip
