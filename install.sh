@@ -20,6 +20,7 @@
 #     --mcp-url=https://<host>/mcp      \   # MCP origin for OAuth bootstrap
 #     --spa-origin=https://<host>       \   # SPA's public origin
 #     [--db=bentoclick]                 \   # dashboard database name
+#     [--cluster='{cluster}']           \   # CH cluster name (default: the {cluster} macro)
 #     [--migrate-from=<old-db>]         \   # copy rows from old DB after schema apply
 #     [--brand-name=bentoclick]         \   # browser-tab title
 #     [--email-domain=example.com]      \   # used to expand owner localparts
@@ -29,6 +30,11 @@ set -euo pipefail
 
 # ---- defaults ----
 DB="bentoclick"
+# Cluster name for ON CLUSTER + clusterAllReplicas-based asset
+# distribution. Default to the literal {cluster} macro which CH
+# expands at parse time on any cluster that defines the macro
+# (antalya does; the test image's clickhouse-config.xml does).
+CLUSTER="{cluster}"
 MIGRATE_FROM=""
 BRAND_NAME="bentoclick"
 EMAIL_DOMAIN=""
@@ -43,6 +49,7 @@ for arg in "$@"; do
     --mcp-url=*)      MCP_URL="${arg#*=}" ;;
     --spa-origin=*)   SPA_ORIGIN="${arg#*=}" ;;
     --db=*)           DB="${arg#*=}" ;;
+    --cluster=*)      CLUSTER="${arg#*=}" ;;
     --migrate-from=*) MIGRATE_FROM="${arg#*=}" ;;
     --brand-name=*)   BRAND_NAME="${arg#*=}" ;;
     --email-domain=*) EMAIL_DOMAIN="${arg#*=}" ;;
@@ -132,15 +139,42 @@ PY
 ch_file_upload() {
   # $1 = relative path inside user_files (e.g. dash/spa.js)
   # $2 = local file
-  # Encodes the file as base64 and INSERTs into a file() function with
-  # base64Decode() — the canonical way to push binary blobs into CH.
-  # Schema must be `content String` (column-name + type); plain `String`
-  # is rejected as a columns-declaration syntax error.
+  #
+  # Cluster-distribution model: one File-engine table per asset,
+  # created ON CLUSTER so every replica has its own table pointing
+  # at the SAME absolute path on its OWN local user_files/ disk.
+  # `INSERT INTO FUNCTION clusterAllReplicas(...)` then fans the
+  # bytes out to every replica's local file().
+  #
+  # Why not `INSERT INTO FUNCTION clusterAllReplicas('{cluster}', file(...))`?
+  # CH rejects table functions inside clusterAllReplicas — it expects
+  # a db.table reference (Code: 60. UNKNOWN_TABLE: Both table name
+  # and UUID are empty). Same goes for cluster() and remote(). The
+  # File-engine table is the indirection that makes the fan-out work.
+  #
+  # Each replica is a separate write; there is no quorum or atomic
+  # rotation. During the brief inconsistency window an unlucky reader
+  # behind a non-sticky LB might fetch stale bytes from one replica
+  # while another has the new bytes. Acceptable for SPA assets — the
+  # browser cache headers (no-store on spa.js, no-cache on dash.js
+  # via spa.js fetchRuntime) re-fetch on next page load.
   local path="$1" local_file="$2"
+  # Asset path → CH-safe table name: 'dash/spa.js' → '_asset_dash_spa_js'.
+  local table_name
+  table_name="_asset_$(printf '%s' "$path" | tr -c 'A-Za-z0-9_' '_')"
   local b64
   b64="$(base64 < "$local_file" | tr -d '\n')"
-  printf "INSERT INTO FUNCTION file('%s', 'RawBLOB', 'content String') SETTINGS engine_file_truncate_on_insert = 1 SELECT base64Decode('%s')" \
-    "$path" "$b64" \
+  # 1. Idempotent CREATE on every replica. File engine accepts an
+  #    absolute path under user_files (CH 26+ resolves it relative
+  #    to user_files_path when it's a subdir).
+  printf "CREATE TABLE IF NOT EXISTS %s.%s ON CLUSTER '%s' (content String) ENGINE = File('RawBLOB', '/var/lib/clickhouse/user_files/%s')" \
+    "$DB" "$table_name" "$CLUSTER" "$path" \
+    | ch_query > /dev/null
+  # 2. clusterAllReplicas INSERT — bytes fanned out to every replica's
+  #    local File-engine table, truncate-on-insert so re-deploys
+  #    overwrite cleanly.
+  printf "INSERT INTO FUNCTION clusterAllReplicas('%s', '%s', '%s') SETTINGS engine_file_truncate_on_insert = 1 SELECT base64Decode('%s')" \
+    "$CLUSTER" "$DB" "$table_name" "$b64" \
     | ch_query > /dev/null
 }
 
