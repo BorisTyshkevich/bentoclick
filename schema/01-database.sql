@@ -74,48 +74,52 @@ ENGINE = Null;
 -- sanitize_json_text — strip dangerous HTML constructs from a JSON
 -- text blob. Applied to `panels` in the MV before JSONExtract'ing
 -- into Array(JSON). Operating on the raw String form means we run
--- one regex pass per row, not one per panel — and the function name
--- generalises if we ever extend sanitization to other JSON columns.
+-- two regex passes per row, not one per panel — and the function
+-- name generalises if we ever extend sanitization to other JSON
+-- columns.
 --
 -- The deletions only affect *contents* of JSON string values (HTML
 -- inside a panel's `html` field, for example); structural quotes and
 -- braces are preserved, so the result remains valid JSON.
 --
--- Threats handled (case-insensitive, single-line):
---   <script>...</script>       — strip whole element
---   <script .../>              — strip self-closing form
---   <iframe>...</iframe>       — strip whole element
---   <iframe ...> (orphan)      — strip opening tag (defensive)
---   <object>...</object>       — strip whole element
---   <embed .../>               — strip void element
---   on*="..." / on*='...'      — strip event-handler attributes
---   javascript:                — neutralize URL protocol
+-- Threats handled in one alternation pass (case-insensitive, single
+-- line), plus a second pass that neutralises `javascript:` URLs:
+--
+--   Paired elements (whole element stripped):
+--     <script>…</script>, <iframe>…</iframe>, <object>…</object>,
+--     <svg>…</svg>, <math>…</math>, <style>…</style>, <form>…</form>
+--   Self-closing / orphan / void elements (opening tag stripped):
+--     script, iframe, object, svg, math, style, form, embed, link,
+--     base, meta
+--   Event handlers:
+--     on*="…", on*='…', and (the regex gap that drove this rewrite)
+--     unquoted on*=value forms like `<img onerror=alert(1)>`.
+--   URL scheme:
+--     javascript:
+--
+-- RE2 (ClickHouse's regex engine) has no backreferences, which is
+-- why paired-element patterns are enumerated individually rather
+-- than `<(\w+)>…</\1>`.
 --
 -- Pattern detail: agent-provided JSON encoders (JavaScript's
 -- JSON.stringify, Python's json.dumps) leave `/` unescaped, while
--- ClickHouse's toJSONString() escapes `/` as `\/`. Close-tag patterns
--- match an optional leading backslash before each `/` so both forms
--- are covered. The on*= double-quoted variant likewise tolerates an
--- optional escape on the surrounding quotes.
+-- ClickHouse's toJSONString() escapes `/` as `\/`. Close-tag and
+-- self-close patterns tolerate an optional leading backslash before
+-- each `/` so both forms are covered; the double-quoted event
+-- handler variant likewise tolerates an optional escape on the
+-- surrounding quotes.
+-- Pattern (one alternation, single line — ClickHouse SQL doesn't allow
+-- adjacent string-literal concatenation):
+--   Paired containers: <script|iframe|object|svg|math|style|form>…</…>
+--   Orphan/self-closing/void: same set plus embed/link/base/meta
+--   Event handlers: on*="…", on*='…', and unquoted on*=value
+-- A second pass neutralises the `javascript:` URL scheme.
 CREATE OR REPLACE FUNCTION sanitize_json_text AS (s) ->
     replaceRegexpAll(
         replaceRegexpAll(
-            replaceRegexpAll(
-                replaceRegexpAll(
-                    replaceRegexpAll(
-                        replaceRegexpAll(
-                            replaceRegexpAll(
-                                replaceRegexpAll(
-                                    replaceRegexpAll(
-                                        s,
-                                        '(?is)<script\\b[^>]*>.*?<\\\\?/script[^>]*>', ''),
-                                    '(?is)<script\\b[^>]*\\\\?/>', ''),
-                                '(?is)<iframe\\b[^>]*>.*?<\\\\?/iframe[^>]*>', ''),
-                            '(?is)<iframe\\b[^>]*>', ''),
-                        '(?is)<object\\b[^>]*>.*?<\\\\?/object[^>]*>', ''),
-                    '(?is)<embed\\b[^>]*\\\\?/?>', ''),
-                '(?i)\\bon[a-z]+\\s*=\\s*\\\\?"[^"]*\\\\?"', ''),
-            '(?i)\\bon[a-z]+\\s*=\\s*''[^'']*''', ''),
+            s,
+            '(?is)<script\\b[^>]*>.*?<\\\\?/script[^>]*>|<iframe\\b[^>]*>.*?<\\\\?/iframe[^>]*>|<object\\b[^>]*>.*?<\\\\?/object[^>]*>|<svg\\b[^>]*>.*?<\\\\?/svg[^>]*>|<math\\b[^>]*>.*?<\\\\?/math[^>]*>|<style\\b[^>]*>.*?<\\\\?/style[^>]*>|<form\\b[^>]*>.*?<\\\\?/form[^>]*>|<(?:script|iframe|object|svg|math|style|form|embed|link|base|meta)\\b[^>]*\\\\?/?>|\\bon[a-z]+\\s*=\\s*(?:\\\\?"[^"]*\\\\?"|''[^'']*''|[^\\s>"'']+)',
+            ''),
         '(?i)javascript:', '');
 
 -- The MV parses the agent-supplied JSON text into the read target's

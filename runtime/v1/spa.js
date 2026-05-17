@@ -263,7 +263,7 @@ async function chQuery(sql) {
 }
 
 function assertSafe(name, v) {
-  if (!SAFE.test(v)) throw new Error('Invalid ' + name + ': only [A-Za-z0-9._-] allowed');
+  if (!SAFE.test(v)) throw new Error('Invalid ' + name + ': only [A-Za-z0-9._+@-] allowed');
   if (v.length > 128) throw new Error(name + ' too long');
 }
 
@@ -313,21 +313,6 @@ async function fetchDashboard(owner, slug) {
 // defuse any `</script>` breakout payload (well-known XSS guard for
 // inlined JSON-in-script). The sanitize_panel MV scrubbed the panels
 // server-side; this layer is defense-in-depth.
-// Cache the runtime JS once per SPA load. The iframe is sandboxed
-// without `allow-same-origin`, so a cross-origin <script type="module">
-// import would fail CORS — we inline the runtime into the srcdoc as
-// a classic <script> instead. Same-origin (relative to about:srcdoc)
-// loads still don't work because the iframe is null-origin, so the
-// only reliable path is to bake the source into the srcdoc.
-var __runtimeJsText = null;
-async function loadRuntimeJs(version) {
-  if (__runtimeJsText) return __runtimeJsText;
-  var r = await withTimeout('/lib/v' + version + '/dash-runtime.js',
-    { headers: { 'Accept': 'application/javascript' }, cache: 'force-cache' });
-  if (!r.ok) throw new Error('runtime fetch failed: HTTP ' + r.status);
-  __runtimeJsText = await r.text();
-  return __runtimeJsText;
-}
 
 // Strip `export ` keywords from the module text so the body runs as a
 // classic script. Leaves named bindings as plain `const`/`function`,
@@ -339,11 +324,17 @@ function moduleToClassic(src) {
     .replace(/^export\s+\{[^}]*\};?$/gm, '');
 }
 
+// The iframe is sandboxed without `allow-same-origin`, so an ES-module
+// import from the null-origin srcdoc would fail CORS. We fetch the
+// runtime once and inline it as a classic <script>.
 async function synthesizeSpecWrapper(spec) {
   var v = Math.max(1, Math.min(255, Number(spec.spec_version) || 1));
   var specJson = JSON.stringify(spec).replace(/<\/(?=script)/gi, '<\\/');
   var origin = location.origin;
-  var runtimeJs = moduleToClassic(await loadRuntimeJs(v));
+  var r = await withTimeout('/lib/v' + v + '/dash-runtime.js',
+    { headers: { 'Accept': 'application/javascript' }, cache: 'force-cache' });
+  if (!r.ok) throw new Error('runtime fetch failed: HTTP ' + r.status);
+  var runtimeJs = moduleToClassic(await r.text());
   return ''
     + '<!doctype html><html lang="en"><head>'
     + '<meta charset="utf-8">'
@@ -424,30 +415,17 @@ function handleIframeMessage(ev) {
   if (!frame || ev.source !== frame.contentWindow) return;
   if (ev.origin !== 'null') return;
   var m = ev.data;
-  if (!m || typeof m !== 'object') return;
-  if (m.type === 'logout') {
-    // confirm() in the sandboxed iframe is blocked (no allow-modals);
-    // ask in the parent, where the prompt actually appears.
-    if (confirm('Log out and return to the login screen?')) clearTokenAndRestart();
-    return;
-  }
-  if (m.type !== 'ch-query') return;
+  if (!m || typeof m !== 'object' || m.type !== 'ch-query') return;
   var id = m.id, sql = m.sql;
   if (typeof id !== 'number' || typeof sql !== 'string') return;
   chQuery(sql).then(function(j){
     var cols = j.columns || (j.meta ? j.meta.map(function(c){return c.name;}) : []);
-    // CH HTTP JSONCompact: { meta:[{name,type},...], data:[[...]], rows:N }
-    //   where `rows` is the row count (number), `data` is the array.
-    // MCP /openapi/execute_query: { columns:[...], rows:[[...]], count:N }
-    //   where `rows` is the array.
-    var rowsRaw = Array.isArray(j.data) ? j.data : (Array.isArray(j.rows) ? j.rows : []);
-    var rows = rowsRaw.map(function(r){ var o = {}; cols.forEach(function(c,i){ o[c] = r[i]; }); return o; });
-    // targetOrigin: the sandboxed iframe has origin "null"; "*" is required
-    // (the literal string "null" is rejected by postMessage). Defense in
-    // depth is the iframe's own listener filter (source === window.parent).
-    var count = (typeof j.count === 'number') ? j.count
-              : (typeof j.rows === 'number')  ? j.rows
-              : rowsRaw.length;
+    var rows = jsonCompactRows(j);
+    var count = (typeof j.count === 'number') ? j.count : rows.length;
+    // targetOrigin "*": sandboxed iframe origin is "null", which
+    // postMessage rejects as a literal string. Source check above is
+    // the defense — and the iframe's own listener filters on
+    // ev.source === window.parent.
     frame.contentWindow.postMessage(
       { type: 'ch-result', id: id, cols: cols, rows: rows, count: count },
       '*'
@@ -474,7 +452,6 @@ function escHtml(s) {
     return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
   });
 }
-function escAttr(s) { return escHtml(s).replace(/"/g, '&quot;'); }
 function fmtBytes(b) {
   var n = Number(b) || 0;
   if (n < 1024) return n + ' B';
@@ -516,13 +493,15 @@ function renderLoginCard(returnTo) {
   });
 }
 
-// Parse JSONCompact { meta:[{name,type}], data:[[...]] } into row-of-objects.
+// Parse CH HTTP {meta,data} OR MCP {columns,rows} into row-of-objects.
 function jsonCompactRows(j) {
-  var meta = j.meta || [];
-  var data = j.data || [];
+  var cols = j.columns || (j.meta ? j.meta.map(function(c){ return c.name; }) : []);
+  var data = Array.isArray(j.data) ? j.data
+           : Array.isArray(j.rows) ? j.rows
+           : [];
   return data.map(function(row) {
     var o = {};
-    meta.forEach(function(c, i) { o[c.name] = row[i]; });
+    cols.forEach(function(c, i) { o[c] = row[i]; });
     return o;
   });
 }
@@ -556,7 +535,7 @@ async function renderIndex() {
       '<span class="logo-name">Altinity Dashboards</span>' +
       '<span class="env-chip">' + escHtml(location.host) + '</span>' +
       '<span class="spacer"></span>' +
-      '<span class="user-email" title="' + escAttr(whoami.email) + '">' + escHtml(whoami.email) + '</span>' +
+      '<span class="user-email" title="' + escHtml(whoami.email) + '">' + escHtml(whoami.email) + '</span>' +
       '<button class="hd-btn" id="logout" type="button">Sign out</button>' +
     '</header>' +
     '<main class="app-main">' +
@@ -585,7 +564,7 @@ async function renderIndex() {
       var tags = (r.tags || []).map(function(t){ return '<span class="tag">' + escHtml(t) + '</span>'; }).join('');
       var updated = String(r.updated_at || '').slice(0, 16).replace('T', ' ');
       return '<tr>' +
-        '<td class="title"><a href="' + escAttr(href) + '" target="_blank" rel="noopener">' + escHtml(r.title || r.slug) + '</a></td>' +
+        '<td class="title"><a href="' + escHtml(href) + '" target="_blank" rel="noopener">' + escHtml(r.title || r.slug) + '</a></td>' +
         '<td class="slug">' + escHtml(r.slug) + '</td>' +
         '<td class="right">' + fmtBytes(r.content_size) + '</td>' +
         '<td>' + escHtml(updated) + '</td>' +

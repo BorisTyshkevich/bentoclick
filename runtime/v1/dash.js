@@ -216,33 +216,38 @@ export function createLedger() {
 // ============================================================
 // Markdown — minimal subset.
 // ============================================================
+
+// Inline markdown pass: backtick code, [text](https://url) links,
+// **bold**, *italic*. Input must already be HTML-escaped — the URL
+// regex restricts hrefs to http(s) so javascript: URLs can't slip
+// through, and quote escaping protects attribute-context injection.
+export function mdInline(s) {
+  return s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|\W)\*([^*]+)\*(\W|$)/g, '$1<em>$2</em>$3');
+}
+
 export function renderTinyMarkdown(src) {
   const esc = fmt.esc;
   const blocks = String(src).split(/\n\s*\n+/);
   return blocks.map((b0) => {
     const b = b0.replace(/\r/g, '');
     let m;
-    if ((m = b.match(/^###\s+(.*)$/m))) return '<h3>' + inline(esc(m[1])) + '</h3>';
-    if ((m = b.match(/^##\s+(.*)$/m)))  return '<h2 style="text-transform:none;font-size:14px">' + inline(esc(m[1])) + '</h2>';
-    if ((m = b.match(/^#\s+(.*)$/m)))   return '<h2 style="text-transform:none;font-size:16px">' + inline(esc(m[1])) + '</h2>';
+    if ((m = b.match(/^###\s+(.*)$/m))) return '<h3>' + mdInline(esc(m[1])) + '</h3>';
+    if ((m = b.match(/^##\s+(.*)$/m)))  return '<h2 style="text-transform:none;font-size:14px">' + mdInline(esc(m[1])) + '</h2>';
+    if ((m = b.match(/^#\s+(.*)$/m)))   return '<h2 style="text-transform:none;font-size:16px">' + mdInline(esc(m[1])) + '</h2>';
     if (/^\s*-\s+/.test(b)) {
       const items = b.split(/\n/).map((line) => {
         const im = line.match(/^\s*-\s+(.*)$/);
-        return im ? '<li>' + inline(esc(im[1])) + '</li>' : '';
+        return im ? '<li>' + mdInline(esc(im[1])) + '</li>' : '';
       }).join('');
       return '<ul>' + items + '</ul>';
     }
-    return '<p>' + inline(esc(b)) + '</p>';
+    return '<p>' + mdInline(esc(b)) + '</p>';
   }).join('\n');
-
-  function inline(s) {
-    return s
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener">$1</a>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|\W)\*([^*]+)\*(\W|$)/g, '$1<em>$2</em>$3');
-  }
 }
 
 // ============================================================
@@ -497,14 +502,7 @@ function renderHero(panel, state, ctx) {
     return v;
   }
 
-  function inlineMd(s) {
-    return fmt.esc(s)
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener">$1</a>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|\W)\*([^*]+)\*(\W|$)/g, '$1<em>$2</em>$3');
-  }
+  function inlineMd(s) { return mdInline(fmt.esc(s)); }
 
   function render(row) {
     const rendered = [];
