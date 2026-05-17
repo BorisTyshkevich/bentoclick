@@ -302,26 +302,52 @@ async function fetchDashboard(owner, slug) {
 // defuse any `</script>` breakout payload (well-known XSS guard for
 // inlined JSON-in-script). The sanitize_panel MV scrubbed the panels
 // server-side; this layer is defense-in-depth.
-function synthesizeSpecWrapper(spec) {
+// Cache the runtime JS once per SPA load. The iframe is sandboxed
+// without `allow-same-origin`, so a cross-origin <script type="module">
+// import would fail CORS — we inline the runtime into the srcdoc as
+// a classic <script> instead. Same-origin (relative to about:srcdoc)
+// loads still don't work because the iframe is null-origin, so the
+// only reliable path is to bake the source into the srcdoc.
+var __runtimeJsText = null;
+async function loadRuntimeJs(version) {
+  if (__runtimeJsText) return __runtimeJsText;
+  var r = await withTimeout('/lib/v' + version + '/dash-runtime.js',
+    { headers: { 'Accept': 'application/javascript' }, cache: 'force-cache' });
+  if (!r.ok) throw new Error('runtime fetch failed: HTTP ' + r.status);
+  __runtimeJsText = await r.text();
+  return __runtimeJsText;
+}
+
+// Strip `export ` keywords from the module text so the body runs as a
+// classic script. Leaves named bindings as plain `const`/`function`,
+// keeps the bottom `window.DASH = ...` block intact, and the renderSpec
+// function is referenced as `window.DASH.renderSpec` by the iframe boot.
+function moduleToClassic(src) {
+  return src
+    .replace(/^export\s+(async\s+function|function|class|const|let|var)\s+/gm, '$1 ')
+    .replace(/^export\s+\{[^}]*\};?$/gm, '');
+}
+
+async function synthesizeSpecWrapper(spec) {
   var v = Math.max(1, Math.min(255, Number(spec.spec_version) || 1));
   var specJson = JSON.stringify(spec).replace(/<\/(?=script)/gi, '<\\/');
+  var origin = location.origin;
+  var runtimeJs = moduleToClassic(await loadRuntimeJs(v));
   return ''
     + '<!doctype html><html lang="en"><head>'
     + '<meta charset="utf-8">'
-    + '<link rel="stylesheet" href="/lib/v' + v + '/dash-theme.css">'
+    + '<link rel="stylesheet" href="' + origin + '/lib/v' + v + '/dash-theme.css">'
     + '</head><body>'
     + '<div id="dash-root"></div>'
-    + '<script type="module">\n'
-    + '  import { renderSpec } from "/lib/v' + v + '/dash.js";\n'
-    + '  (async () => {\n'
-    + '    try { await renderSpec(' + specJson + ', document.getElementById("dash-root")); }\n'
-    + '    catch (e) {\n'
-    + '      document.getElementById("dash-root").innerHTML =\n'
-    + '        "<pre style=\\"color:#ff6b6b;white-space:pre-wrap;font:12px ui-monospace\\">renderSpec error:\\n" +\n'
-    + '        (e && e.message ? e.message : e) + "</pre>";\n'
-    + '    }\n'
-    + '  })();\n'
-    + '<\/script>'
+    + '<script>\n' + runtimeJs.replace(/<\/(?=script)/gi, '<\\/') + '\n<\/script>'
+    + '<script>(async () => {\n'
+    + '  try { await window.DASH.renderSpec(' + specJson + ', document.getElementById("dash-root")); }\n'
+    + '  catch (e) {\n'
+    + '    document.getElementById("dash-root").innerHTML =\n'
+    + '      "<pre style=\\"color:#ff6b6b;white-space:pre-wrap;font:12px ui-monospace\\">renderSpec error:\\n" +\n'
+    + '      (e && e.message ? e.message : e) + "</pre>";\n'
+    + '  }\n'
+    + '})();<\/script>'
     + '</body></html>';
 }
 

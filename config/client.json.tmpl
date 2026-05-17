@@ -1,10 +1,13 @@
 {
+  "client_id":     "${SPA_ORIGIN}/oauth/client.json",
   "client_name":   "${BRAND_NAME}",
-  "redirect_uris": ["${SPA_ORIGIN}/mcp-callback"],
   "client_uri":    "${SPA_ORIGIN}/",
-  "grant_types":             ["authorization_code", "refresh_token"],
-  "response_types":          ["code"],
+  "description":   "bentoclick — browser SPA for authenticated dashboards on this ClickHouse cluster.",
+  "application_type": "web",
+  "redirect_uris": ["${SPA_ORIGIN}/mcp-callback"],
+  "grant_types":   ["authorization_code"],
+  "response_types": ["code"],
   "token_endpoint_auth_method": "none",
-  "application_type":        "web",
-  "scope":                   "openid email"
+  "allowed_origins": ["${SPA_ORIGIN}"],
+  "web_origins":     ["${SPA_ORIGIN}"]
 }
