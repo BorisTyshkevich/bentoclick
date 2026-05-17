@@ -19,7 +19,8 @@
 #     --ch-password=<pw>                \   # admin password (or empty)
 #     --mcp-url=https://<host>/mcp      \   # MCP origin for OAuth bootstrap
 #     --spa-origin=https://<host>       \   # SPA's public origin
-#     [--db=dashboards]                 \   # dashboard database name
+#     [--db=bentoclick]                 \   # dashboard database name
+#     [--migrate-from=<old-db>]         \   # copy rows from old DB after schema apply
 #     [--brand-name=bentoclick]         \   # browser-tab title
 #     [--email-domain=example.com]      \   # used to expand owner localparts
 #     [--accent=#00d4aa]                    # primary accent color
@@ -27,7 +28,8 @@
 set -euo pipefail
 
 # ---- defaults ----
-DB="dashboards"
+DB="bentoclick"
+MIGRATE_FROM=""
 BRAND_NAME="bentoclick"
 EMAIL_DOMAIN=""
 ACCENT="#00d4aa"
@@ -41,6 +43,7 @@ for arg in "$@"; do
     --mcp-url=*)      MCP_URL="${arg#*=}" ;;
     --spa-origin=*)   SPA_ORIGIN="${arg#*=}" ;;
     --db=*)           DB="${arg#*=}" ;;
+    --migrate-from=*) MIGRATE_FROM="${arg#*=}" ;;
     --brand-name=*)   BRAND_NAME="${arg#*=}" ;;
     --email-domain=*) EMAIL_DOMAIN="${arg#*=}" ;;
     --accent=*)       ACCENT="${arg#*=}" ;;
@@ -149,9 +152,20 @@ echo "    SPA:   $SPA_ORIGIN"
 
 # ---- 1. Apply schema ----
 echo "==> applying schema/*.sql"
-for sql in schema/01-database.sql schema/02-roles.sql; do
+for sql in schema/00-definer.sql schema/01-database.sql schema/02-roles.sql; do
   ch_apply_file "$sql"
 done
+
+# ---- 1b. Optional: copy data from a previous DB ----
+# Use case: renaming the dashboard database (e.g. `dashboards` →
+# `bentoclick`) without losing user content. The MV doesn't fire on
+# this direct INSERT into the destination — that's correct, the
+# source rows were already sanitized at original write time.
+if [[ -n "${MIGRATE_FROM}" ]]; then
+  echo "==> migrating data from ${MIGRATE_FROM} → ${DB}"
+  printf "INSERT INTO %s.dashboards SELECT * FROM %s.dashboards FINAL" \
+    "$DB" "$MIGRATE_FROM" | ch_query
+fi
 
 # ---- 2. Push runtime assets ----
 echo "==> pushing runtime/v1/* to user_files"

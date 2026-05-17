@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-DB="dashboards"
+DB="bentoclick"
 for arg in "$@"; do
   case "$arg" in
     --ch-host=*)     CH_HOST="${arg#*=}" ;;
@@ -27,15 +27,15 @@ ch_query() {
 
 echo "==> dropping ${DB}.* objects"
 cat <<SQL | ch_query
-DROP TABLE IF EXISTS ${DB}.dashboards_mv SYNC;
-DROP TABLE IF EXISTS ${DB}.dashboards    SYNC;
-DROP TABLE IF EXISTS ${DB}.dashboards_raw SYNC;
-DROP TABLE IF EXISTS ${DB}.pages         SYNC;
-DROP VIEW  IF EXISTS ${DB}.whoami;
-DROP ROLE  IF EXISTS ${DB}_reader_role;
-DROP ROLE  IF EXISTS ${DB}_writer_role;
+DROP TABLE    IF EXISTS ${DB}.dashboards_mv SYNC;
+DROP TABLE    IF EXISTS ${DB}.dashboards    SYNC;
+DROP TABLE    IF EXISTS ${DB}.dashboards_raw SYNC;
+DROP VIEW     IF EXISTS ${DB}.whoami;
+DROP ROLE     IF EXISTS ${DB}_reader_role;
+DROP ROLE     IF EXISTS ${DB}_writer_role;
+DROP USER     IF EXISTS ${DB}_definer;
 DROP DATABASE IF EXISTS ${DB} SYNC;
-DROP FUNCTION IF EXISTS sanitize_panel;
+DROP FUNCTION IF EXISTS sanitize_json_text;
 SQL
 
 echo "==> removing dash/ files from user_files (best-effort)"

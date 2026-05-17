@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <!--
-  dash — SPA shell for /app, /v/<owner>/<slug>, /p/<name>.
+  dash — SPA shell for /app and /v/<owner>/<slug>.
 
   Served from ClickHouse user_files as file://dash/spa.html by the handler in
   handlers/dash_handlers.xml. The shell is public; it contains no dashboard
   content.
 
-  Dashboard and page content are fetched from this shell by calling ClickHouse
-  HTTPS directly (`<ch_url>/?query=…`) with the viewer's Bearer token. No
-  anonymous access to any dashboards or pages row.
+  Dashboard content is fetched from this shell by calling ClickHouse HTTPS
+  directly (`<ch_url>/?query=…`) with the viewer's Bearer token. No
+  anonymous access to any dashboard row.
 -->
 <html lang="en">
 <head>

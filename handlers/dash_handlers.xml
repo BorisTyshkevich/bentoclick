@@ -16,7 +16,6 @@
   Routes:
     GET /app                          → SPA shell
     GET /v/<owner>/<slug>             → SPA shell (route handled client-side)
-    GET /p/<name>                     → SPA shell (route handled client-side)
     GET /lib/v1/spa.js                → SPA bootstrap JS
     GET /lib/v1/dash.js       → shared dashboard runtime (window.DASH.*)
     GET /lib/v1/dash-theme.css        → shared dashboard theme tokens
@@ -28,7 +27,7 @@
     <http_handlers>
         <!-- SPA shell. Route parsing happens in spa.js. -->
         <rule>
-            <url><![CDATA[regex:^(/app|/v/[^/]+/[^/]+|/p/[^/]+)/?(\?.*)?$]]></url>
+            <url><![CDATA[regex:^(/app|/v/[^/]+/[^/]+)/?(\?.*)?$]]></url>
             <methods>GET</methods>
             <handler>
                 <type>static</type>

@@ -88,3 +88,63 @@ def test_writer_role_inherits_reader(ch):
     assert has_reader, (
         f"writer must inherit reader role; got grants: {grants}"
     )
+
+
+# ---- Definer user (SQL SECURITY DEFINER target for dashboards_mv) ----
+
+def test_definer_user_exists(ch):
+    """${DB}_definer must exist; it's the principal the MV runs as."""
+    rows = ch.query(
+        "SELECT count() FROM system.users WHERE name = %(u)s",
+        parameters={"u": f"{ch.db_name}_definer"},
+    ).result_rows
+    assert rows[0][0] == 1, f"definer user {ch.db_name}_definer not found"
+
+
+def test_definer_user_has_minimal_grants(ch):
+    """Definer must have SELECT on dashboards_raw + INSERT on
+    dashboards. Nothing else — no DELETE, no ALTER, no SELECT on
+    dashboards (the MV body never reads from the destination)."""
+    grants = _show_grants(ch, f"{ch.db_name}_definer")
+    has_select_raw = any(
+        f"GRANT SELECT ON {ch.db_name}.dashboards_raw" in g for g in grants
+    )
+    has_insert_dashboards = any(
+        f"GRANT INSERT ON {ch.db_name}.dashboards" in g
+        and "dashboards_raw" not in g
+        for g in grants
+    )
+    assert has_select_raw, f"definer missing SELECT on dashboards_raw: {grants}"
+    assert has_insert_dashboards, (
+        f"definer missing INSERT on dashboards: {grants}"
+    )
+    # Definer should have NO other grants.
+    bad = [
+        g for g in grants
+        if "ALTER" in g or "DELETE" in g or "DROP" in g
+    ]
+    assert not bad, f"definer has unexpected mutation grants: {bad}"
+
+
+# ---- Defense-in-depth REVOKE on dashboards ----
+
+def test_reader_and_writer_revoked_from_dashboards(ch):
+    """Explicit REVOKE ensures even a stray future grant or role
+    inheritance can't put INSERT/ALTER/DELETE on dashboards into the
+    reader or writer roles. The SECURITY DEFINER MV is the only legit
+    write path."""
+    for role_kind in ("reader", "writer"):
+        role = _role_name(role_kind, ch.db_name)
+        grants = _show_grants(ch, role)
+        bad = [
+            g for g in grants
+            if (
+                ("INSERT" in g or "ALTER" in g or "DELETE" in g)
+                and f"{ch.db_name}.dashboards" in g
+                and "dashboards_raw" not in g
+            )
+        ]
+        assert not bad, (
+            f"{role} must not have INSERT/ALTER/DELETE on dashboards "
+            f"(SECURITY DEFINER MV is the only writer): {bad}"
+        )

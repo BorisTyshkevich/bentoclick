@@ -8,7 +8,7 @@ description: >
 
 # bentoclick-dashboard
 
-Dashboards are rows in `dashboards.dashboards`, served at
+Dashboards are rows in `bentoclick.dashboards`, served at
 `https://<spa-origin>/v/<owner>/<slug>` behind OAuth. The viewer's
 bearer authenticates ClickHouse queries; the dashboard's SQL runs as
 the viewer.
@@ -41,7 +41,9 @@ parses on the way in).
 
 The server writes through a sanitizing materialized view that strips
 `<script>`, `<iframe>`, event handlers, and `javascript:` URLs from
-`html` panels, then computes `owner = currentUser()` and
+`html` panels, then computes `owner = currentUser()` (the actual
+caller; the MV uses `SQL SECURITY DEFINER` for privilege purposes
+but `currentUser()` still resolves to the session user) and
 `updated_at = now()`. A new INSERT under the same `(owner, slug)`
 replaces the previous row.
 
@@ -50,7 +52,7 @@ replaces the previous row.
 Read once per conversation:
 
 ```sql
-SELECT spa_origin, localpart, my_dashboards_prefix FROM dashboards.whoami
+SELECT spa_origin, localpart, my_dashboards_prefix FROM bentoclick.whoami
 ```
 
 Share URL = `<my_dashboards_prefix><slug>`. Never guess the host —

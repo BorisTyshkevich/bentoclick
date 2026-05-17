@@ -1,0 +1,52 @@
+<!--
+  Test-cluster config for bentoclick's schema tests. Mounted into the
+  CH 26.3 docker-compose service at /etc/clickhouse-server/config.d/
+  test-cluster.xml so the schema's `ON CLUSTER '{cluster}'` clauses
+  and `ReplicatedReplacingMergeTree` engines resolve on a single-node
+  test image. Embedded Keeper is enabled so Replicated tables can
+  coordinate (and clean up after themselves on DROP DATABASE).
+
+  Production antalya provides its own macros + ZooKeeper + cluster
+  via the chop-managed CHI spec; this file is test-only.
+-->
+<clickhouse>
+  <keeper_server>
+    <tcp_port>9181</tcp_port>
+    <server_id>1</server_id>
+    <log_storage_path>/var/lib/clickhouse/keeper-log</log_storage_path>
+    <snapshot_storage_path>/var/lib/clickhouse/keeper-snap</snapshot_storage_path>
+    <coordination_settings>
+      <operation_timeout_ms>10000</operation_timeout_ms>
+      <session_timeout_ms>30000</session_timeout_ms>
+    </coordination_settings>
+    <raft_configuration>
+      <server>
+        <id>1</id>
+        <hostname>localhost</hostname>
+        <port>9234</port>
+      </server>
+    </raft_configuration>
+  </keeper_server>
+
+  <zookeeper>
+    <node><host>localhost</host><port>9181</port></node>
+  </zookeeper>
+
+  <macros>
+    <cluster>test_cluster</cluster>
+    <shard>01</shard>
+    <replica>r1</replica>
+  </macros>
+
+  <remote_servers>
+    <test_cluster>
+      <shard>
+        <internal_replication>true</internal_replication>
+        <replica>
+          <host>localhost</host>
+          <port>9000</port>
+        </replica>
+      </shard>
+    </test_cluster>
+  </remote_servers>
+</clickhouse>

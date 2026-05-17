@@ -65,14 +65,14 @@ def test_dashboards_raw_has_no_owner_or_updated_at(ch):
     )
 
 
-def test_dashboards_engine_is_replacing_merge_tree(ch):
+def test_dashboards_engine_is_replicated_replacing_merge_tree(ch):
     row = ch.query(
         "SELECT engine, engine_full FROM system.tables "
         "WHERE database = %(db)s AND name = 'dashboards'",
         parameters={"db": ch.db_name},
     ).result_rows[0]
     engine, engine_full = row
-    assert engine == "ReplacingMergeTree", f"engine: {engine}"
+    assert engine == "ReplicatedReplacingMergeTree", f"engine: {engine}"
     assert "updated_at" in engine_full, (
         f"engine_full must reference updated_at as the version column: {engine_full}"
     )
@@ -114,9 +114,35 @@ def test_dashboards_mv_wires_raw_to_dashboards(ch):
     # dashboards_raw ends up in dashboards (separate test below).
 
 
+def test_dashboards_mv_uses_security_definer(ch):
+    """The MV must run as ${DB}_definer with SQL SECURITY DEFINER so
+    it can INSERT into `dashboards` even when no other role has that
+    grant. Pin both the clause and the definer username via the
+    `create_table_query` column on system.tables."""
+    rows = ch.query(
+        "SELECT create_table_query FROM system.tables "
+        "WHERE database = %(db)s AND name = 'dashboards_mv'",
+        parameters={"db": ch.db_name},
+    ).result_rows
+    assert rows, "dashboards_mv should exist"
+    ddl = rows[0][0]
+    assert "SQL SECURITY DEFINER" in ddl, (
+        f"MV missing SQL SECURITY DEFINER clause:\n{ddl}"
+    )
+    assert f"{ch.db_name}_definer" in ddl, (
+        f"MV missing DEFINER = {ch.db_name}_definer:\n{ddl}"
+    )
+    assert "currentUser()" in ddl, (
+        f"MV must record owner via currentUser() — empirically returns "
+        f"the session user even under DEFINER, which is what we want:\n{ddl}"
+    )
+
+
 def test_insert_into_raw_propagates_to_dashboards(ch):
     # Sanity: insert into dashboards_raw, see a row appear in dashboards
-    # with owner = currentUser() and a non-zero updated_at. The agent
+    # with owner = currentUser() (the session user; the SQL SECURITY
+    # DEFINER MV's currentUser() returns the session user in CH, not
+    # the definer — verified empirically against CH 26.3). The agent
     # passes JSON-encoded text strings; the MV parses on the way in.
     #
     # NOTE: uses INSERT ... SELECT form intentionally. ClickHouse 26.x
@@ -138,7 +164,10 @@ def test_insert_into_raw_propagates_to_dashboards(ch):
     assert len(rows) == 1, f"expected 1 row in dashboards after raw insert, got: {rows}"
     slug, title, owner, spec_version, has_ts = rows[0]
     assert (slug, title) == ("smoke", "Smoke")
-    assert owner == "default", f"owner should be currentUser() = default; got {owner!r}"
+    assert owner == "default", (
+        f"owner should be currentUser() = default (the connecting test user, "
+        f"NOT the SECURITY DEFINER user); got {owner!r}"
+    )
     assert spec_version == 1
     assert has_ts == 1
 
@@ -166,16 +195,6 @@ def test_insert_values_form_owner_quirk(ch):
         "expected the documented CH quirk to leave owner empty on "
         f"INSERT...VALUES; got {rows[0][0]!r}"
     )
-
-
-def test_pages_table_exists(ch):
-    row = ch.query(
-        "SELECT engine, sorting_key FROM system.tables "
-        "WHERE database = %(db)s AND name = 'pages'",
-        parameters={"db": ch.db_name},
-    ).result_rows[0]
-    assert row[0] == "ReplacingMergeTree"
-    assert row[1] == "name"
 
 
 def test_whoami_view_returns_expected_fields(ch):

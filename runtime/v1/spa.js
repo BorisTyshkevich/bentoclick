@@ -1,4 +1,4 @@
-// dash — SPA bootstrap JS for /app, /v/<owner>/<slug>, /p/<name>.
+// dash — SPA bootstrap JS for /app and /v/<owner>/<slug>.
 //
 // Served from ClickHouse user_files as file://dash/spa.js by the handler at
 // /lib/v1/spa.js. The SPA shell references this as
@@ -128,17 +128,12 @@ function parseRoute() {
   if ((m = p.match(/^\/v\/([^\/]+)\/([^\/]+)\/?$/))) {
     return { kind: 'dashboard', owner: decodeURIComponent(m[1]), slug: decodeURIComponent(m[2]) };
   }
-  if ((m = p.match(/^\/p\/([^\/]+)\/?$/))) {
-    return { kind: 'page', name: decodeURIComponent(m[1]) };
-  }
   if (p === '/app' || p === '/app/' || p === '/') {
     var d = q.get('dashboard');
     if (d) {
       var parts = d.split('/');
       if (parts.length === 2) return { kind: 'dashboard', owner: parts[0], slug: parts[1] };
     }
-    var n = q.get('page');
-    if (n) return { kind: 'page', name: n };
     // /app with no args → built-in index listing the caller's own dashboards.
     return { kind: 'index' };
   }
@@ -356,18 +351,6 @@ async function synthesizeSpecWrapper(spec) {
     + '</body></html>';
 }
 
-async function fetchPage(name) {
-  assertSafe('name', name);
-  if (name.charAt(0) === '_') throw new Error('Page not found: ' + name);
-  var sql = 'SELECT content FROM ' + DB + '.pages'
-          + ' WHERE name = ' + sqlStr(name)
-          + ' LIMIT 1';
-  var d = await chQuery(sql);
-  var rows = d.data || d.rows || [];
-  if (!rows.length) throw new Error('Page not found: ' + name);
-  return rows[0][0];
-}
-
 // ---- Render ----
 //
 // Iframe runs under sandbox="allow-scripts" — scripts execute but the iframe
@@ -486,7 +469,7 @@ function renderLoginCard(returnTo) {
 
 async function renderIndex() {
   // Run whoami + listing through chQuery (top-level fetch — no iframe RPC).
-  var whoamiResp = await chQuery('SELECT email FROM dashboards.whoami');
+  var whoamiResp = await chQuery('SELECT email FROM ' + DB + '.whoami');
   var whoami = jsonCompactRows(whoamiResp)[0] || { email: '?' };
 
   var listResp = await chQuery(
@@ -605,16 +588,13 @@ async function renderIndex() {
     return;
   }
   try {
-    var label = route.kind === 'dashboard' ? (route.owner + '/' + route.slug)
-              : route.kind === 'page'      ? route.name
-              :                              'index';
+    var label = route.kind === 'dashboard' ? (route.owner + '/' + route.slug) : 'index';
     document.title = label + (CFG.brand_name ? ' — ' + CFG.brand_name : '');
     setStatus('Loading ' + label + '…');
     if (route.kind === 'index') {
       await renderIndex();
     } else {
-      var html = route.kind === 'dashboard' ? await fetchDashboard(route.owner, route.slug)
-               :                              await fetchPage(route.name);
+      var html = await fetchDashboard(route.owner, route.slug);
       renderIntoFrame(html);
     }
   } catch (e) {

@@ -127,7 +127,7 @@ describe('spa-helpers — safeReturnTo (open-redirect guard)', () => {
   it('accepts plausible same-origin paths', () => {
     expect(safeReturnTo('/app')).toBe('/app');
     expect(safeReturnTo('/v/owner/slug')).toBe('/v/owner/slug');
-    expect(safeReturnTo('/p/page?x=1')).toBe('/p/page?x=1');
+    expect(safeReturnTo('/app?dashboard=alice/sales')).toBe('/app?dashboard=alice/sales');
   });
 });
 

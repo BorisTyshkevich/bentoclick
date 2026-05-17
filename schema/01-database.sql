@@ -1,6 +1,6 @@
 -- bentoclick — dashboard storage layer.
 --
--- ${DB} is the dashboard database (default: `dashboards`); ${SPA_ORIGIN}
+-- ${DB} is the dashboard database (default: `bentoclick`); ${SPA_ORIGIN}
 -- is the public origin of the ClickHouse HTTPS server hosting the SPA.
 -- Both are substituted by `install.sh` (or `tests/conftest.py` in test
 -- runs) before this file is applied.
@@ -15,27 +15,45 @@
 --                   parameters that map cleanly to MCP tool args.
 --                                |
 --                                v
---   dashboards_mv   Materialized view — sanitizes the panels JSON text
---                   then JSONExtract's into the read target's
---                   structured types.
+--   dashboards_mv   Materialized view, `SQL SECURITY DEFINER`. The MV
+--                   runs as ${DB}_definer (see 00-definer.sql), which
+--                   is the ONLY user with INSERT on `dashboards`. This
+--                   moves the write-path security check from "every
+--                   role omits INSERT on dashboards" (convention) to
+--                   "the definer is the sole grant holder" (enforced
+--                   at SHOW GRANTS time). `initialUser()` records the
+--                   actual session user as `owner` despite the
+--                   definer context.
 --                                |
 --                                v
---   dashboards     ReplacingMergeTree — read target for the SPA. Keeps
---                                       structured types (Array(JSON),
---                                       JSON, Array(String)) for fast
+--   dashboards     ReplicatedReplacingMergeTree — read target for the
+--                                       SPA. Keeps structured types
+--                                       (Array(JSON), JSON,
+--                                       Array(String)) for fast
 --                                       column access from the SPA's
 --                                       SELECT.
 --
--- Direct INSERT into `dashboards` is denied to the writer role — there
--- is no path that bypasses the MV.
+-- Direct INSERT into `dashboards` is denied to every role (explicit
+-- REVOKE in 02-roles.sql, defense in depth on top of the absence of
+-- a grant). The only writer is the SECURITY DEFINER MV.
+--
+-- Cluster-ready: all DDL carries `ON CLUSTER '{cluster}'` and the
+-- replicated engine uses default Zoo paths derived from the
+-- `{database}/{table}/{shard}/{replica}` macros (configured on the
+-- live antalya cluster; configured in `tests/clickhouse-config.xml`
+-- for the test image).
 
-CREATE DATABASE IF NOT EXISTS ${DB};
+CREATE DATABASE IF NOT EXISTS ${DB}
+  ON CLUSTER '{cluster}';
 
 -- Read target. Structured payload columns + owner/updated_at supplied
 -- by the MV. owner and updated_at are DEFAULT (not MATERIALIZED) so
--- the MV's SELECT can supply them explicitly; column-level grants
--- prevent forgery (no INSERT(owner) is ever granted anywhere).
+-- the MV's SELECT can supply them explicitly; column-level grants on
+-- `_raw` prevent forgery (no INSERT(owner) is ever granted anywhere),
+-- and the explicit REVOKE in 02-roles.sql blocks direct INSERTs on
+-- this table even from roles that pick up a default INSERT grant.
 CREATE TABLE IF NOT EXISTS ${DB}.dashboards
+  ON CLUSTER '{cluster}'
 (
     slug         String,
     title        String,
@@ -49,15 +67,17 @@ CREATE TABLE IF NOT EXISTS ${DB}.dashboards
     owner        String        DEFAULT currentUser(),
     updated_at   DateTime      DEFAULT now()
 )
-ENGINE = ReplacingMergeTree(updated_at)
+ENGINE = ReplicatedReplacingMergeTree(updated_at)
 ORDER BY (owner, slug);
 
 -- Write target. All payload columns are String — JSON-encoded text the
 -- agent provides directly. The MV does the conversion to structured
 -- types on the way to `dashboards`. Defaults are empty JSON literals
 -- so an agent that omits an optional column still produces a valid
--- stored row after the MV parse.
+-- stored row after the MV parse. Null engine — no actual storage,
+-- replication, or replica state needed.
 CREATE TABLE IF NOT EXISTS ${DB}.dashboards_raw
+  ON CLUSTER '{cluster}'
 (
     slug         String,
     title        String,
@@ -108,13 +128,15 @@ ENGINE = Null;
 -- each `/` so both forms are covered; the double-quoted event
 -- handler variant likewise tolerates an optional escape on the
 -- surrounding quotes.
+--
 -- Pattern (one alternation, single line — ClickHouse SQL doesn't allow
 -- adjacent string-literal concatenation):
 --   Paired containers: <script|iframe|object|svg|math|style|form>…</…>
 --   Orphan/self-closing/void: same set plus embed/link/base/meta
 --   Event handlers: on*="…", on*='…', and unquoted on*=value
 -- A second pass neutralises the `javascript:` URL scheme.
-CREATE OR REPLACE FUNCTION sanitize_json_text AS (s) ->
+CREATE OR REPLACE FUNCTION sanitize_json_text
+  ON CLUSTER '{cluster}' AS (s) ->
     replaceRegexpAll(
         replaceRegexpAll(
             s,
@@ -127,7 +149,19 @@ CREATE OR REPLACE FUNCTION sanitize_json_text AS (s) ->
 -- before JSONExtract — single regex pass per row, no per-element
 -- stringify/parse hops. The other JSON columns (params, meta, tags)
 -- are parsed directly; they don't contain user-supplied HTML.
-CREATE MATERIALIZED VIEW IF NOT EXISTS ${DB}.dashboards_mv TO ${DB}.dashboards AS
+--
+-- SQL SECURITY DEFINER: the destination INSERT into `${DB}.dashboards`
+-- runs with ${DB}_definer's privileges (the only principal with
+-- INSERT on the read target). Empirically verified in CH 26.3:
+-- `currentUser()` inside a SQL SECURITY DEFINER MV returns the
+-- session-initiating user, NOT the definer — so owner correctly
+-- captures the actual inserter while the definer's grant is what
+-- allows the write to proceed.
+CREATE MATERIALIZED VIEW IF NOT EXISTS ${DB}.dashboards_mv
+  ON CLUSTER '{cluster}'
+  TO ${DB}.dashboards
+  DEFINER = ${DB}_definer
+  SQL SECURITY DEFINER AS
 SELECT
     slug,
     title,
@@ -142,26 +176,25 @@ SELECT
     now()                                                         AS updated_at
 FROM ${DB}.dashboards_raw;
 
--- Admin-curated public HTML pages, served by the SPA at /p/<name>.
--- No MATERIALIZED owner — admin-managed, not user content.
-CREATE TABLE IF NOT EXISTS ${DB}.pages
-(
-    name       String,
-    content    String,
-    updated_at DateTime DEFAULT now(),
-    CONSTRAINT content_size CHECK length(content) < 2 * 1024 * 1024
-)
-ENGINE = ReplacingMergeTree(updated_at)
-ORDER BY name;
-
 -- whoami — resolves the caller's identity AND the dashboard SPA URL
 -- base in one round-trip. MCP-attached agents MUST read spa_origin
 -- from here rather than guessing — the MCP origin and the SPA origin
 -- are different hosts.
-CREATE OR REPLACE VIEW ${DB}.whoami AS
+CREATE OR REPLACE VIEW ${DB}.whoami
+  ON CLUSTER '{cluster}' AS
 SELECT
     currentUser()                                              AS email,
     splitByChar('@', currentUser())[1]                         AS localpart,
     '${SPA_ORIGIN}'                                            AS spa_origin,
     concat('${SPA_ORIGIN}', '/v/',
            splitByChar('@', currentUser())[1], '/')            AS my_dashboards_prefix;
+
+-- Definer-user grants. Live at the END of this file so the tables
+-- they reference already exist. The definer needs to SELECT from
+-- _raw (the MV's source) and INSERT into dashboards (the MV's
+-- destination). Nothing else — no DELETE, no ALTER, no read access
+-- to the destination.
+GRANT SELECT ON ${DB}.dashboards_raw TO ${DB}_definer
+  ON CLUSTER '{cluster}';
+GRANT INSERT ON ${DB}.dashboards TO ${DB}_definer
+  ON CLUSTER '{cluster}';

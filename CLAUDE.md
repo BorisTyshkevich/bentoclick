@@ -1,11 +1,12 @@
 # bentoclick — agent contributor guide
 
 You are working on `bentoclick`, a small ClickHouse-backed dashboard
-system. Spec is stored as typed columns in `dashboards.dashboards_raw`
-(Null engine), sanitized through a materialized view into
-`dashboards.dashboards` (read target). The SPA reads rows and renders
-panels at view time, executing user-supplied SQL as the viewer's
-ClickHouse identity.
+system. Spec is stored as typed columns in `bentoclick.dashboards_raw`
+(Null engine), sanitized through a `SQL SECURITY DEFINER` materialized
+view into `bentoclick.dashboards` (read target). The MV runs as the
+`bentoclick_definer` user — the only principal with INSERT on the
+read target. The SPA reads rows and renders panels at view time,
+executing user-supplied SQL as the viewer's ClickHouse identity.
 
 ## Hard rules
 
@@ -22,8 +23,10 @@ ClickHouse identity.
 
 3. **All writes go through `dashboards_raw`, never directly to
    `dashboards`.** The writer role only has INSERT on the raw
-   table. The materialized view runs sanitization. There is no
-   sanctioned bypass.
+   table; an explicit REVOKE on `bentoclick.dashboards` blocks
+   direct mutation; the SECURITY DEFINER MV (running as
+   `bentoclick_definer`) is the only sanctioned path that puts
+   rows in `bentoclick.dashboards`.
 
 4. **Don't commit secrets.** No bearer tokens, no client secrets, no
    `config.json` with real origins baked in. `config/*.json` are

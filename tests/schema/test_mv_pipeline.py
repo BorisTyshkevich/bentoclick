@@ -120,9 +120,16 @@ def test_replacing_merge_tree_dedups_on_owner_slug(ch):
 
 
 def test_owner_set_by_mv_not_writer(ch):
-    """The MV computes owner = currentUser(); the writer never sets it."""
+    """The MV computes owner = currentUser(); the writer never sets it.
+    Under SQL SECURITY DEFINER the MV runs with ${DB}_definer's
+    privileges, but `currentUser()` returns the session user (verified
+    empirically against CH 26.3) — so the actual inserter is recorded
+    in the owner column."""
     _insert(ch, "ownerchk", [{"type": "markdown", "text": "x"}])
     row = ch.query(
         f"SELECT owner FROM {ch.db_name}.dashboards FINAL WHERE slug = 'ownerchk'"
     ).result_rows[0]
-    assert row[0] == "default"
+    assert row[0] == "default", (
+        f"owner should be currentUser() = default (the connecting user), "
+        f"not the SECURITY DEFINER user; got {row[0]!r}"
+    )

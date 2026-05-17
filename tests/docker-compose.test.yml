@@ -10,6 +10,11 @@ services:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ""
       CLICKHOUSE_DB: default
+    volumes:
+      # Mount the test cluster config (embedded Keeper + macros +
+      # one-node `test_cluster` remote_server) so the schema's
+      # ON CLUSTER '{cluster}' and Replicated* engines resolve.
+      - ./clickhouse-config.xml:/etc/clickhouse-server/config.d/test-cluster.xml:ro
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
       interval: 2s
@@ -17,6 +22,9 @@ services:
       retries: 30
       start_period: 5s
     tmpfs:
+      # /var/lib/clickhouse is wiped per run BUT must exist for both
+      # the data store and the embedded Keeper log/snapshot paths
+      # (see clickhouse-config.xml keeper_server.{log,snapshot}_storage_path).
       - /var/lib/clickhouse
       - /var/log/clickhouse-server
 
