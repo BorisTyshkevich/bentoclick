@@ -339,15 +339,15 @@ async function synthesizeSpecWrapper(spec) {
   var specJson = JSON.stringify(spec).replace(/<\/(?=script)/gi, '<\\/');
   var origin = location.origin;
   async function fetchRuntime(path) {
-    // No `cache: 'force-cache'` here — it bypasses freshness checks
-    // (per MDN: "returns cached match fresh OR stale"), which broke
-    // every /v/ load after a runtime deploy by serving the prior
-    // dash-runtime.js indefinitely. Default cache mode + the
-    // handler's `Cache-Control: public, max-age=300,
-    // stale-while-revalidate=3600` already gives us efficient repeat
-    // fetches with timely revalidation.
+    // `cache: 'no-cache'` forces conditional revalidation. The static
+    // handler doesn't set ETag/Last-Modified, so every fetch returns
+    // a fresh body — one small round-trip per /v/ load. Default cache
+    // mode (and the prior `force-cache`) honoured the handler's
+    // `max-age=300` and served stale runtime from disk after a deploy,
+    // which is how stale dash-runtime.js stuck around as PR #1 added
+    // new panel types.
     var r = await withTimeout('/lib/v' + v + path,
-      { headers: { 'Accept': 'application/javascript' } });
+      { headers: { 'Accept': 'application/javascript' }, cache: 'no-cache' });
     if (!r.ok) throw new Error('runtime fetch failed: ' + path + ' HTTP ' + r.status);
     return r.text();
   }

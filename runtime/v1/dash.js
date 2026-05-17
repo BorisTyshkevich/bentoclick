@@ -10,7 +10,7 @@
 // resolves through the same /lib/v1/ origin as dash.js itself.
 
 import {
-  palette as chartPalette,
+  chartPalette,
   colorFor,
   linearScale,
   bandScale,
@@ -20,7 +20,7 @@ import {
   axisBottom,
   axisY,
   annotationLine,
-  el as svgEl,
+  svgEl,
 } from './charts.js';
 
 // ============================================================

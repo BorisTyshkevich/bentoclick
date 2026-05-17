@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  palette,
+  chartPalette,
   colorFor,
   linearScale,
   bandScale,
@@ -10,13 +10,13 @@ import {
   axisBottom,
   axisY,
   annotationLine,
-  el,
+  svgEl,
 } from '../../../runtime/v1/charts.js';
 
 describe('charts: primitives', () => {
-  it('palette has 8 colors', () => {
-    expect(palette.length).toBe(8);
-    palette.forEach((c) => expect(c).toMatch(/^#[0-9a-f]{6}$/i));
+  it('chartPalette has 8 colors', () => {
+    expect(chartPalette.length).toBe(8);
+    chartPalette.forEach((c) => expect(c).toMatch(/^#[0-9a-f]{6}$/i));
   });
 
   it('colorFor is stable across calls', () => {
@@ -25,12 +25,12 @@ describe('charts: primitives', () => {
     expect(a).toBe(b);
   });
 
-  it('colorFor maps null/undefined to a palette color', () => {
-    expect(palette).toContain(colorFor(null));
-    expect(palette).toContain(colorFor(undefined));
+  it('colorFor maps null/undefined to a chartPalette color', () => {
+    expect(chartPalette).toContain(colorFor(null));
+    expect(chartPalette).toContain(colorFor(undefined));
   });
 
-  it('colorFor uses provided palette', () => {
+  it('colorFor uses provided chartPalette', () => {
     const c = colorFor('x', ['#fff']);
     expect(c).toBe('#fff');
   });
@@ -152,8 +152,8 @@ describe('charts: primitives', () => {
     expect(g.querySelector('text')).toBeNull();
   });
 
-  it('el sets only non-null attributes', () => {
-    const e = el('rect', { x: 0, y: 1, width: null, fill: '#fff' });
+  it('svgEl sets only non-null attributes', () => {
+    const e = svgEl('rect', { x: 0, y: 1, width: null, fill: '#fff' });
     expect(e.getAttribute('x')).toBe('0');
     expect(e.getAttribute('fill')).toBe('#fff');
     expect(e.hasAttribute('width')).toBe(false);

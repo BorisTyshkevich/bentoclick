@@ -11,11 +11,11 @@
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// 8-color ordinal palette. Chosen for high contrast on the dark
+// 8-color ordinal chartPalette. Chosen for high contrast on the dark
 // theme defined in dash-theme.css; not tied to the --accent CSS
 // vars because SVG paint inheritance through `currentColor` is too
 // blunt when we need stable color-per-key.
-export const palette = [
+export const chartPalette = [
   '#00d4aa', // primary teal
   '#5cd1ff', // sky
   '#f5a623', // amber
@@ -26,11 +26,11 @@ export const palette = [
   '#7bdcb5', // mint
 ];
 
-// Stable hash → palette index. Pure FNV-1a-ish over the string form
+// Stable hash → chartPalette index. Pure FNV-1a-ish over the string form
 // so the same `value` always picks the same color across renders
 // and across panels.
 export function colorFor(value, pal) {
-  const p = pal || palette;
+  const p = pal || chartPalette;
   const s = String(value == null ? '' : value);
   let h = 2166136261 >>> 0;
   for (let i = 0; i < s.length; i++) {
@@ -40,7 +40,7 @@ export function colorFor(value, pal) {
   return p[h % p.length];
 }
 
-export function el(name, attrs) {
+export function svgEl(name, attrs) {
   const e = document.createElementNS(SVG_NS, name);
   if (attrs) {
     for (const k in attrs) {
@@ -134,14 +134,14 @@ export function svgRoot(opts) {
   const w = opts.width || 480;
   const h = opts.height || 220;
   const pad = Object.assign({ top: 8, right: 12, bottom: 24, left: 48 }, opts.padding || {});
-  const svg = el('svg', {
+  const svg = svgEl('svg', {
     viewBox: '0 0 ' + w + ' ' + h,
     width: '100%',
     height: h,
     class: 'chart-svg',
     preserveAspectRatio: 'none',
   });
-  const plot = el('g', { transform: 'translate(' + pad.left + ',' + pad.top + ')' });
+  const plot = svgEl('g', { transform: 'translate(' + pad.left + ',' + pad.top + ')' });
   svg.appendChild(plot);
   return { svg, plot, w, h, pad, iw: w - pad.left - pad.right, ih: h - pad.top - pad.bottom };
 }
@@ -150,14 +150,14 @@ export function svgRoot(opts) {
 // the values to label; `scale` maps value -> x; `format` is called
 // for each tick label.
 export function axisBottom(opts) {
-  const g = el('g', { class: 'chart-axis chart-axis-x' });
+  const g = svgEl('g', { class: 'chart-axis chart-axis-x' });
   const y = opts.ih;
-  g.appendChild(el('line', { x1: 0, x2: opts.iw, y1: y, y2: y, class: 'chart-axis-line' }));
+  g.appendChild(svgEl('line', { x1: 0, x2: opts.iw, y1: y, y2: y, class: 'chart-axis-line' }));
   (opts.ticks || []).forEach((t) => {
     const x = opts.scale(t);
     if (x == null || !isFinite(x)) return;
-    g.appendChild(el('line', { x1: x, x2: x, y1: y, y2: y + 4, class: 'chart-tick' }));
-    const txt = el('text', { x, y: y + 16, 'text-anchor': 'middle', class: 'chart-tick-label' });
+    g.appendChild(svgEl('line', { x1: x, x2: x, y1: y, y2: y + 4, class: 'chart-tick' }));
+    const txt = svgEl('text', { x, y: y + 16, 'text-anchor': 'middle', class: 'chart-tick-label' });
     txt.textContent = opts.format ? opts.format(t) : String(t);
     g.appendChild(txt);
   });
@@ -167,20 +167,20 @@ export function axisBottom(opts) {
 // Vertical axis on the left (or right via `orient: 'right'`).
 export function axisY(opts) {
   const orient = opts.orient === 'right' ? 'right' : 'left';
-  const g = el('g', { class: 'chart-axis chart-axis-y chart-axis-' + orient });
+  const g = svgEl('g', { class: 'chart-axis chart-axis-y chart-axis-' + orient });
   const x = orient === 'right' ? opts.iw : 0;
-  g.appendChild(el('line', { x1: x, x2: x, y1: 0, y2: opts.ih, class: 'chart-axis-line' }));
+  g.appendChild(svgEl('line', { x1: x, x2: x, y1: 0, y2: opts.ih, class: 'chart-axis-line' }));
   const labelX = orient === 'right' ? x + 6 : x - 6;
   const anchor = orient === 'right' ? 'start' : 'end';
   (opts.ticks || []).forEach((t) => {
     const y = opts.scale(t);
     if (y == null || !isFinite(y)) return;
     if (opts.grid !== false) {
-      g.appendChild(el('line', {
+      g.appendChild(svgEl('line', {
         x1: 0, x2: opts.iw, y1: y, y2: y, class: 'chart-grid',
       }));
     }
-    const txt = el('text', {
+    const txt = svgEl('text', {
       x: labelX, y: y + 4, 'text-anchor': anchor, class: 'chart-tick-label',
     });
     txt.textContent = opts.format ? opts.format(t) : String(t);
@@ -191,11 +191,11 @@ export function axisY(opts) {
 
 // Vertical annotation line at `x`, with label text. Returns a <g>.
 export function annotationLine(opts) {
-  const g = el('g', { class: 'chart-annotation' });
+  const g = svgEl('g', { class: 'chart-annotation' });
   const x = opts.x;
-  g.appendChild(el('line', { x1: x, x2: x, y1: 0, y2: opts.ih, class: 'chart-annotation-line' }));
+  g.appendChild(svgEl('line', { x1: x, x2: x, y1: 0, y2: opts.ih, class: 'chart-annotation-line' }));
   if (opts.label != null && opts.label !== '') {
-    const txt = el('text', {
+    const txt = svgEl('text', {
       x: x + 3, y: 10, 'text-anchor': 'start', class: 'chart-annotation-label',
     });
     txt.textContent = String(opts.label);
