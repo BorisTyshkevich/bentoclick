@@ -30,5 +30,14 @@ services:
 
 networks:
   default:
-    external: true
-    name: ${DOCKER_NETWORK:-bridge}
+    # Two-mode config controlled by env:
+    #   - In the macOS sandbox we MUST attach to the existing isolator
+    #     network (e.g. `iso-acm`) — Docker is restricted to that one
+    #     network. Set DOCKER_NETWORK=iso-acm + DOCKER_NETWORK_EXTERNAL=true.
+    #   - In CI (and any other plain Docker host) both env vars are
+    #     unset; compose creates its own `bentoclick-test` bridge.
+    # Earlier we tried `external: true name: ${DOCKER_NETWORK:-bridge}`
+    # — fine in the sandbox, broken in CI because the `bridge` fallback
+    # is Docker's built-in network and rejects container aliases.
+    name: ${DOCKER_NETWORK:-bentoclick-test}
+    external: ${DOCKER_NETWORK_EXTERNAL:-false}
