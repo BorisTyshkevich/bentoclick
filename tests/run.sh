@@ -66,7 +66,7 @@ fi
 
 echo "==> running vitest with coverage"
 if compgen -G "runtime/unit/*.test.js" > /dev/null || compgen -G "e2e/*.test.js" > /dev/null; then
-  (cd runtime && npx --no-install vitest run --coverage)
+  (cd .. && npx --no-install vitest run --coverage --config tests/vitest.config.ts)
 else
   echo "    no runtime tests yet — skipping"
 fi

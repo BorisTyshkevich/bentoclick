@@ -29,7 +29,7 @@ $(VENV_DIR):
 
 install-deps: $(VENV_DIR)
 	$(VENV_PIP) install -r tests/requirements.txt
-	cd tests && npm install
+	npm install
 
 up:
 	$(DOCKER_COMPOSE) -f tests/docker-compose.test.yml up -d
@@ -48,7 +48,7 @@ test-schema: up
 	@$(MAKE) down
 
 test-runtime:
-	cd tests && npx vitest run --coverage
+	npx vitest run --coverage --config tests/vitest.config.ts
 
 coverage: test-runtime
 	@echo "Coverage report at tests/runtime/coverage/index.html"
