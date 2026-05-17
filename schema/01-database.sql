@@ -135,8 +135,11 @@ ENGINE = Null;
 --   Orphan/self-closing/void: same set plus embed/link/base/meta
 --   Event handlers: on*="…", on*='…', and unquoted on*=value
 -- A second pass neutralises the `javascript:` URL scheme.
-CREATE OR REPLACE FUNCTION sanitize_json_text
-  ON CLUSTER '{cluster}' AS (s) ->
+-- NB: no `ON CLUSTER '{cluster}'` here — CH 26.1 rejects it for
+-- `CREATE FUNCTION` ("user-defined functions are replicated
+-- automatically"). The function is propagated via Keeper just like
+-- access management is.
+CREATE OR REPLACE FUNCTION sanitize_json_text AS (s) ->
     replaceRegexpAll(
         replaceRegexpAll(
             s,
