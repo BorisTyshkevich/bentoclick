@@ -1,41 +1,25 @@
-// Unit tests for the pure helpers inside `runtime/v1/spa.js`.
+// Unit tests for the pure helpers exported from runtime/v1/spa-helpers.js.
 //
-// spa.js is a classic <script> (no exports) — the top-level IIFE
-// `main()` touches `location.replace`, OAuth state, the iframe boot
-// flow, etc., which is why this file isn't directly importable like
-// dash.js is. To exercise the file's pure helpers in isolation we
-// source-slice each top-level declaration and re-hydrate it via
-// `new Function`. Side-effect-free helpers only — anything that
-// reaches into the DOM or kicks off a fetch stays in the chrome-mcp
-// e2e suite, not here.
+// These were previously source-sliced out of spa.js (a classic <script>
+// with no exports) and re-hydrated via `new Function`, which worked for
+// behaviour but left v8 coverage at 0% — the instrumentation tracks
+// the original file, not the eval'd snippet. spa-helpers.js is a proper
+// ESM module imported by spa.js (with `<script type="module">`) AND by
+// these tests, so coverage now flows through naturally.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+  escHtml,
+  fmtBytes,
+  sqlStr,
+  assertSafe,
+  SAFE_PATTERN,
+  safeReturnTo,
+  jsonCompactRows,
+  moduleToClassic,
+} from '../../../runtime/v1/spa-helpers.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const spaSrc = readFileSync(join(here, '../../../runtime/v1/spa.js'), 'utf8');
-
-// Pull a set of named declarations (functions, vars, consts) out of
-// spa.js's source by regex, concatenate them, and return them via
-// `new Function`. Each declaration must be one of:
-//   - `function NAME(...) { ... }` with `}` on its own line
-//   - `var NAME = ...;` on a single line
-function extract(...names) {
-  const parts = names.map((name) => {
-    const fn = spaSrc.match(new RegExp(`^function ${name}\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}`, 'm'));
-    if (fn) return fn[0];
-    const v = spaSrc.match(new RegExp(`^var ${name}\\s*=[^;]+;`, 'm'));
-    if (v) return v[0];
-    throw new Error('not found in spa.js: ' + name);
-  });
-  return new Function(parts.join('\n') + `\nreturn { ${names.join(', ')} };`)();
-}
-
-describe('spa.js — escHtml', () => {
-  const { escHtml } = extract('escHtml');
-
+describe('spa-helpers — escHtml', () => {
   it('escapes &<>"\' so attacker HTML renders as literal text', () => {
     expect(escHtml('<script>alert(1)</script>'))
       .toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
@@ -54,9 +38,7 @@ describe('spa.js — escHtml', () => {
   });
 });
 
-describe('spa.js — fmtBytes', () => {
-  const { fmtBytes } = extract('fmtBytes');
-
+describe('spa-helpers — fmtBytes', () => {
   it('formats bytes below 1KB', () => {
     expect(fmtBytes(0)).toBe('0 B');
     expect(fmtBytes(1023)).toBe('1023 B');
@@ -78,9 +60,7 @@ describe('spa.js — fmtBytes', () => {
   });
 });
 
-describe('spa.js — sqlStr', () => {
-  const { sqlStr } = extract('sqlStr');
-
+describe('spa-helpers — sqlStr', () => {
   it('wraps and doubles internal single quotes', () => {
     expect(sqlStr('hello')).toBe("'hello'");
     expect(sqlStr("o'reilly")).toBe("'o''reilly'");
@@ -92,14 +72,12 @@ describe('spa.js — sqlStr', () => {
   });
 });
 
-describe('spa.js — assertSafe + SAFE', () => {
-  const { assertSafe, SAFE } = extract('SAFE', 'assertSafe');
-
-  it('SAFE regex matches the documented character class', () => {
-    expect(SAFE.test('aZ09._+@-')).toBe(true);
-    expect(SAFE.test('contains space')).toBe(false);
-    expect(SAFE.test('contains/slash')).toBe(false);
-    expect(SAFE.test("contains'quote")).toBe(false);
+describe('spa-helpers — assertSafe + SAFE_PATTERN', () => {
+  it('SAFE_PATTERN regex matches the documented character class', () => {
+    expect(SAFE_PATTERN.test('aZ09._+@-')).toBe(true);
+    expect(SAFE_PATTERN.test('contains space')).toBe(false);
+    expect(SAFE_PATTERN.test('contains/slash')).toBe(false);
+    expect(SAFE_PATTERN.test("contains'quote")).toBe(false);
   });
 
   it('accepts valid identifiers without throwing', () => {
@@ -120,9 +98,7 @@ describe('spa.js — assertSafe + SAFE', () => {
   });
 });
 
-describe('spa.js — safeReturnTo (open-redirect guard)', () => {
-  const { safeReturnTo } = extract('safeReturnTo');
-
+describe('spa-helpers — safeReturnTo (open-redirect guard)', () => {
   it('returns "/" for non-strings, empty, or oversized inputs', () => {
     expect(safeReturnTo(null)).toBe('/');
     expect(safeReturnTo(undefined)).toBe('/');
@@ -155,9 +131,7 @@ describe('spa.js — safeReturnTo (open-redirect guard)', () => {
   });
 });
 
-describe('spa.js — jsonCompactRows', () => {
-  const { jsonCompactRows } = extract('jsonCompactRows');
-
+describe('spa-helpers — jsonCompactRows', () => {
   it('parses CH HTTP {meta, data} shape', () => {
     const j = {
       meta: [{ name: 'a', type: 'String' }, { name: 'b', type: 'Int' }],
@@ -178,9 +152,29 @@ describe('spa.js — jsonCompactRows', () => {
   });
 
   it('ignores a numeric `rows` field (CH-style row count)', () => {
-    // CH HTTP returns rows:N (a number) alongside data:[[...]]; the
-    // helper must not treat the number as iterable.
     const j = { meta: [{ name: 'x' }], data: [[1]], rows: 1 };
     expect(jsonCompactRows(j)).toEqual([{ x: 1 }]);
+  });
+});
+
+describe('spa-helpers — moduleToClassic', () => {
+  it('strips a multi-line `import { ... } from "./x.js"` block', () => {
+    const src = 'import {\n  a,\n  b as c,\n} from "./x.js";\nconst y = 1;\n';
+    const out = moduleToClassic(src);
+    expect(out).not.toMatch(/^import\b/m);
+    expect(out).toMatch(/const y = 1;/);
+  });
+
+  it('strips a single-line bare `import "./x.js"` side-effect form', () => {
+    const src = 'import "./side.js";\nconst y = 1;\n';
+    expect(moduleToClassic(src)).not.toMatch(/^import\b/m);
+  });
+
+  it('strips `export` from declarations and named-export lists', () => {
+    const src = 'export const fmt = {};\nexport function f() {}\nexport { fmt, f };\n';
+    const out = moduleToClassic(src);
+    expect(out).not.toMatch(/^export\b/m);
+    expect(out).toMatch(/const fmt = \{\}/);
+    expect(out).toMatch(/function f\(\)/);
   });
 });

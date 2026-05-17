@@ -2,8 +2,9 @@
 //
 // Served from ClickHouse user_files as file://dash/spa.js by the handler at
 // /lib/v1/spa.js. The SPA shell references this as
-// <script src="/lib/v1/spa.js">, which lets a strict CSP on the shell avoid
-// inline bootstrap code.
+// <script type="module" src="/lib/v1/spa.js">, which lets a strict CSP on
+// the shell avoid inline bootstrap code AND lets us pull pure helpers from
+// the sibling ./spa-helpers.js module for direct unit-test coverage.
 //
 // Data path: this shell calls ClickHouse HTTPS DIRECTLY (the CH_URL from
 // /config.json) with the OAuth bearer in the Authorization header. The MCP
@@ -14,8 +15,16 @@
 //
 // Deploy: see dash/install.sh — pushes this file via
 // INSERT INTO FUNCTION file('dash/spa.js', 'RawBLOB', 'String') ...
-(function(){
-'use strict';
+
+import {
+  escHtml,
+  fmtBytes,
+  jsonCompactRows,
+  sqlStr,
+  assertSafe,
+  safeReturnTo,
+  moduleToClassic,
+} from './spa-helpers.js';
 
 // ---- Runtime config (loaded from /config.json before main()) ----
 var CFG       = null;                    // populated by loadConfig() at boot
@@ -36,7 +45,6 @@ var STATE_KEY = 'pkce_state';
 // owner URLs (@) so /v/<full-email>/<slug> works. owners and slugs are
 // quote-escaped via sqlStr() before splicing into SQL, but we still apply
 // a conservative character allowlist as defense in depth.
-var SAFE      = /^[A-Za-z0-9._+@-]+$/;
 var FETCH_MS  = 20000;
 
 // Storage helpers. The SPA can render inside a sandbox-without-same-origin
@@ -192,13 +200,6 @@ function oauthClientId() {
   return cid;
 }
 
-function safeReturnTo(s) {
-  if (typeof s !== 'string' || s.length === 0 || s.length > 2048) return '/';
-  if (!/^\/[^/]/.test(s)) return '/';
-  if (/^\/mcp-callback(?:[/?#]|$)/.test(s)) return '/';
-  return s;
-}
-
 async function startAuth(returnTo) {
   var meta = await discoverAS();
   if (meta.client_id_metadata_document_supported !== true) {
@@ -234,8 +235,7 @@ function clearTokenAndRestart() {
 }
 
 // ---- Content fetch via ClickHouse HTTP, direct ----
-// URL segments are whitelisted by SAFE before being embedded in SQL.
-function sqlStr(s) { return "'" + s.replace(/'/g, "''") + "'"; }
+// URL segments are whitelisted via assertSafe / sqlStr from ./spa-helpers.js.
 
 async function chQuery(sql) {
   var tok = lsGet(TOK_KEY);
@@ -260,11 +260,6 @@ async function chQuery(sql) {
     throw new Error('HTTP ' + r.status + ': ' + body);
   }
   return await r.json();
-}
-
-function assertSafe(name, v) {
-  if (!SAFE.test(v)) throw new Error('Invalid ' + name + ': only [A-Za-z0-9._+@-] allowed');
-  if (v.length > 128) throw new Error(name + ' too long');
 }
 
 async function fetchDashboard(owner, slug) {
@@ -313,19 +308,6 @@ async function fetchDashboard(owner, slug) {
 // defuse any `</script>` breakout payload (well-known XSS guard for
 // inlined JSON-in-script). The sanitize_panel MV scrubbed the panels
 // server-side; this layer is defense-in-depth.
-
-// Convert an ES-module source string into a classic-script-compatible
-// equivalent. Strips top-level `import …` statements (including the
-// multi-line `import { a, b } from './x.js'` form) and the `export`
-// keyword on named declarations. Leaves the body otherwise untouched;
-// in particular the trailing `window.DASH = …` assignment survives so
-// the iframe boot can still reach renderSpec through DASH.
-function moduleToClassic(src) {
-  return src
-    .replace(/^import\s+(?:[\s\S]+?from\s+)?['"][^'"]+['"]\s*;?/gm, '')
-    .replace(/^export\s+(async\s+function|function|class|const|let|var)\s+/gm, '$1 ')
-    .replace(/^export\s+\{[^}]*\};?$/gm, '');
-}
 
 // The iframe is sandboxed without `allow-same-origin`, so an ES-module
 // import from the null-origin srcdoc would fail CORS. We fetch the
@@ -468,18 +450,6 @@ window.addEventListener('message', handleIframeMessage);
 // /sql is the design reference for header + login card; the OAuth flow
 // itself is unchanged (CIMD + PKCE via discoverAS/startAuth).
 
-function escHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
-    return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
-  });
-}
-function fmtBytes(b) {
-  var n = Number(b) || 0;
-  if (n < 1024) return n + ' B';
-  if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
-  return (n/1048576).toFixed(1) + ' MB';
-}
-
 function hideShellChrome() {
   var st = document.getElementById('status'); if (st) st.classList.add('hide');
   var fr = document.getElementById('frame');  if (fr) fr.classList.add('hide');
@@ -511,19 +481,6 @@ function renderLoginCard(returnTo) {
       var m = document.getElementById('login-msg');
       if (m) { m.textContent = 'Error: ' + (e.message || e); m.style.color = '#ff6b6b'; }
     }
-  });
-}
-
-// Parse CH HTTP {meta,data} OR MCP {columns,rows} into row-of-objects.
-function jsonCompactRows(j) {
-  var cols = j.columns || (j.meta ? j.meta.map(function(c){ return c.name; }) : []);
-  var data = Array.isArray(j.data) ? j.data
-           : Array.isArray(j.rows) ? j.rows
-           : [];
-  return data.map(function(row) {
-    var o = {};
-    cols.forEach(function(c, i) { o[c] = row[i]; });
-    return o;
   });
 }
 
@@ -664,5 +621,4 @@ async function renderIndex() {
     if (e.message === 'Auth expired') { clearTokenAndRestart(); return; }
     setStatus(e.message || 'Failed to load', true);
   }
-})();
 })();

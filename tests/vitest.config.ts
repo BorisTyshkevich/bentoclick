@@ -23,23 +23,20 @@ export default defineConfig({
       // dash.js + charts.js are the renderable runtime — happy-dom-testable
       // in unit form, gated at 90/85/90/90.
       //
-      // spa.js is the OAuth/routing bootstrap that hits real browser globals
-      // (location, crypto.subtle, OAuth servers); it's a classic <script>
-      // with no exports. Its pure helpers ARE covered by behaviour-level
-      // unit tests (spa.helpers.test.js, module-to-classic.test.js) but
-      // those tests source-slice each function and re-hydrate it via
-      // `new Function(...)`, so v8 coverage on the spa.js file itself
-      // stays at 0% — instrumentation tracks the original script, not the
-      // eval'd snippet. The file is in `include` for visibility in the
-      // HTML coverage report (gaps surface as uncovered lines for follow-
-      // up work); thresholds gated at 0 acknowledge the limitation.
-      // To gate spa.js properly, refactor its pure helpers into a sibling
-      // ESM module (e.g. `runtime/v1/spa-helpers.js`) that tests can
-      // import directly and the iframe boot bundles with moduleToClassic
-      // alongside charts.js. Tracked separately.
+      // spa-helpers.js holds the pure OAuth/HTML/SQL helpers that spa.js
+      // imports as an ES module. Tests import it directly so v8 coverage
+      // tracks the actual file. Gated at the same level as dash.js.
+      //
+      // spa.js is the OAuth/routing bootstrap that hits real browser
+      // globals (location, crypto.subtle, OAuth servers). Most of it
+      // is still verified via the chrome-mcp + claude.ai antalya e2e
+      // suite, not unit tests. Included for visibility (gaps surface
+      // as uncovered lines in the HTML report) but ungated until more
+      // of its DOM/OAuth pathways grow unit tests.
       include: [
         'runtime/v1/dash.js',
         'runtime/v1/charts.js',
+        'runtime/v1/spa-helpers.js',
         'runtime/v1/spa.js',
       ],
       // Statements/lines/functions are the user-facing coverage signal.
@@ -47,16 +44,16 @@ export default defineConfig({
       // it counts each side of every `||` short-circuit fallback as a
       // separate branch, including defensive fallbacks like
       // `(e && e.message) || String(e)` that are intentionally hard to
-      // hit.
-      //
-      // Per-file thresholds (no global aggregate) — spa.js sits at 0%
-      // for the reason above and would drag any global average down
-      // sub-threshold, hiding real regressions in dash.js/charts.js.
+      // hit. Per-file thresholds (no global aggregate) so spa.js's
+      // low coverage doesn't mask dash.js/charts.js regressions.
       thresholds: {
         'runtime/v1/dash.js': {
           statements: 90, branches: 85, functions: 90, lines: 90,
         },
         'runtime/v1/charts.js': {
+          statements: 90, branches: 85, functions: 90, lines: 90,
+        },
+        'runtime/v1/spa-helpers.js': {
           statements: 90, branches: 85, functions: 90, lines: 90,
         },
         'runtime/v1/spa.js': {

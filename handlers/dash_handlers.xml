@@ -115,6 +115,23 @@
             </handler>
         </rule>
 
+        <!-- spa-helpers.js — pure helpers (escape, fmt, OAuth-safe
+             utilities) imported by spa.js as ES module. Extracted so
+             tests can import them directly and v8 coverage tracks the
+             actual file (source-slicing tests don't count). -->
+        <rule>
+            <url><![CDATA[regex:^/lib/v1/spa-helpers\.js$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>application/javascript; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Cache-Control>no-store</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/spa-helpers.js</response_content>
+            </handler>
+        </rule>
+
         <rule>
             <url><![CDATA[regex:^/lib/v1/dash-theme\.css$]]></url>
             <methods>GET</methods>
