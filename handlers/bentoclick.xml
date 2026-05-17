@@ -1,9 +1,12 @@
 <?xml version="1.0"?>
 <!--
-  dash — HTTP handlers for the dashboard SPA.
+  bentoclick — HTTP handlers for the dashboard SPA.
 
-  Apply as a ClickHouse config.d fragment. On the demo cluster, push via:
-    acmctl setting create <cluster-id> dash_handlers @handlers/dash_handlers.xml
+  Apply as a ClickHouse config.d fragment. The fragment is named
+  `bentoclick.xml` so it is recognisable at a glance in a
+  `ls /etc/clickhouse-server/config.d/` listing. On the demo cluster,
+  push via:
+    acmctl setting create <cluster-id> bentoclick @handlers/bentoclick.xml
     acmctl cluster push <cluster-id>
 
   All referenced assets live under /var/lib/clickhouse/user_files/dash/ and
@@ -16,8 +19,10 @@
   Routes:
     GET /app                          → SPA shell
     GET /v/<owner>/<slug>             → SPA shell (route handled client-side)
-    GET /lib/v1/spa.js                → SPA bootstrap JS
-    GET /lib/v1/dash.js       → shared dashboard runtime (window.DASH.*)
+    GET /lib/v1/spa.js                → SPA bootstrap JS (ES module)
+    GET /lib/v1/spa-helpers.js        → pure helpers imported by spa.js
+    GET /lib/v1/dash.js               → shared dashboard runtime (window.DASH.*)
+    GET /lib/v1/charts.js             → SVG chart primitives imported by dash.js
     GET /lib/v1/dash-theme.css        → shared dashboard theme tokens
     GET /mcp-callback                 → OAuth code → token exchange page
     GET /config.json                  → runtime config (MCP/CH URLs, branding)
