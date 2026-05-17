@@ -177,4 +177,92 @@ describe('SpecRuntime.setParam', () => {
     rt.setParam('from', '2024-06-01');
     expect(rt.params.from).toBe('2024-06-01');
   });
+
+  // ---- probe-and-revert: setParam matches the interpolator's strictness ----
+  // The interpolator enforces min/max, enum membership, date format, and
+  // string pattern. Before this gate, those values would pass setParam,
+  // sync the toolbar, then throw on every sibling re-fetch.
+
+  it('rejects out-of-range int and preserves the previous value', async () => {
+    const { rt, root } = mountSpec({
+      title: 'X',
+      params: [{ name: 'year', type: 'int', default: 2020, min: 1987, max: 2025 }],
+      panels: [],
+    });
+    await rt.boot();
+    expect(rt.setParam('year', 1985)).toBe(false);
+    expect(rt.params.year).toBe(2020);
+    expect(root.querySelector('input[type="number"]').value).toBe('2020');
+    expect(rt.setParam('year', 2030)).toBe(false);
+    expect(rt.params.year).toBe(2020);
+  });
+
+  it('rejects enum miss', async () => {
+    const { rt } = mountSpec({
+      title: 'X',
+      params: [{ name: 'carrier', type: 'enum', options: ['AA','UA','DL'], default: 'AA' }],
+      panels: [],
+    });
+    await rt.boot();
+    expect(rt.setParam('carrier', 'EI')).toBe(false);
+    expect(rt.params.carrier).toBe('AA');
+  });
+
+  it('rejects bad date format', async () => {
+    const { rt } = mountSpec({
+      title: 'X',
+      params: [{ name: 'from', type: 'date', default: '2020-01-01' }],
+      panels: [],
+    });
+    await rt.boot();
+    expect(rt.setParam('from', '2024')).toBe(false);
+    expect(rt.params.from).toBe('2020-01-01');
+  });
+
+  it('rejects string regex mismatch', async () => {
+    // Default pattern is /^[A-Za-z0-9 _.+@-]*$/ — an arrow char fails.
+    const { rt } = mountSpec({
+      title: 'X',
+      params: [{ name: 'label', type: 'string', default: 'ok' }],
+      panels: [],
+    });
+    await rt.boot();
+    expect(rt.setParam('label', 'WN→DL')).toBe(false);
+    expect(rt.params.label).toBe('ok');
+  });
+});
+
+describe('on_click rejected-flash', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  it('adds chart-click-rejected briefly when setParam returns false', () => {
+    // Stub spec whose setParam refuses everything — simulates a bad
+    // value that the probe-and-revert path would reject.
+    const spec = { panels: {}, setParam: () => false, on() {} };
+    const state = { id: 't', rows: [], update: () => {} };
+    const el = PANELS.table({
+      type: 'table',
+      columns: [{ key: 'name' }],
+      on_click: { set_param: 'carrier', from: 'name' },
+    }, state, { api: { fmt }, spec });
+    document.body.appendChild(el);
+    state.update([{ name: 'EI' }]);
+    const tr = el.querySelector('tbody tr[data-row-index]');
+    tr.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(tr.classList.contains('chart-click-rejected')).toBe(true);
+  });
+
+  it('does NOT flash when setParam accepts', () => {
+    const spec = { panels: {}, setParam: () => true, on() {} };
+    const state = { id: 't', rows: [], update: () => {} };
+    const el = PANELS.table({
+      type: 'table',
+      columns: [{ key: 'name' }],
+      on_click: { set_param: 'carrier', from: 'name' },
+    }, state, { api: { fmt }, spec });
+    state.update([{ name: 'AA' }]);
+    const tr = el.querySelector('tbody tr[data-row-index]');
+    tr.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(tr.classList.contains('chart-click-rejected')).toBe(false);
+  });
 });

@@ -224,6 +224,18 @@ tr.selected-row {
 .chart-bar { cursor: default; }
 .chart-bar.chart-clickable { cursor: pointer; }
 .chart-bar.chart-clickable:hover { opacity: 0.85; }
+
+/* Click-rejected flash — on_click landed on a row whose value didn't
+   pass the param's strict validation (out-of-range int, enum miss,
+   regex mismatch, bad date format). Brief red outline pulse so the
+   click registers visually without red-screening sibling panels. */
+.chart-click-rejected {
+  animation: chart-click-reject 0.4s ease-out;
+}
+@keyframes chart-click-reject {
+  0%   { outline: 2px solid var(--error); outline-offset: 1px; }
+  100% { outline: 2px solid transparent; outline-offset: 1px; }
+}
 .chart-point { stroke: var(--bg); stroke-width: 1.5; }
 .chart-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--fg-dim); margin: 6px 0 0; }
 .chart-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }

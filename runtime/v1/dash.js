@@ -343,6 +343,9 @@ function makeCard(panel, extraClass) {
 // `on_click: { set_param, from }` — wire a click target to a param
 // update. Click handlers are no-ops when `ctx.spec` is missing or
 // when `from` doesn't resolve on the row (e.g. tests with no spec).
+// If setParam rejects the value (out-of-range, regex mismatch, enum
+// miss), the click flashes a brief red outline so the user sees the
+// click registered but the value didn't fit the param's rules.
 function wireOnClick(target, panel, row, ctx) {
   const oc = panel.on_click;
   if (!oc || !oc.set_param || !ctx || !ctx.spec || !ctx.spec.setParam) return;
@@ -351,7 +354,9 @@ function wireOnClick(target, panel, row, ctx) {
   target.classList.add('chart-clickable');
   target.style.cursor = 'pointer';
   target.addEventListener('click', () => {
-    ctx.spec.setParam(oc.set_param, row[fromKey]);
+    if (ctx.spec.setParam(oc.set_param, row[fromKey])) return;
+    target.classList.add('chart-click-rejected');
+    setTimeout(() => target.classList.remove('chart-click-rejected'), 400);
   });
 }
 
@@ -1243,7 +1248,17 @@ export class SpecRuntime {
     } else {
       coerced = String(value == null ? '' : value);
     }
+    // Probe-and-revert: the coercion above accepts any string for date/
+    // enum/string, and any integer for int regardless of min/max. The
+    // strict per-type validation lives in the interpolator. If we stored
+    // a bad value here it would pass setParam, sync the toolbar, then
+    // throw on the first re-fetched panel — red-screening every sibling.
+    // Probing against `{{name}}` runs the same validation the panel SQL
+    // would, with the value already in `this.params`.
+    const prev = this.params[name];
     this.params[name] = coerced;
+    try { this._interp('{{' + name + '}}'); }
+    catch (_) { this.params[name] = prev; return false; }
     const inp = this._paramInputs[name];
     if (inp) inp.value = coerced;
     this._rerun(name);
