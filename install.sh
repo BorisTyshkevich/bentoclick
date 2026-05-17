@@ -212,7 +212,10 @@ for spec in samples/*.spec.json; do
     s="${s//\'/\'\'}"
     printf '%s' "$s"
   }
-  printf "INSERT INTO ${DB}.dashboards_raw (slug, title, subtitle, spec_version, params, panels) SELECT '%s', '%s', '%s', %s, JSONExtract('%s', 'Array(JSON)'), JSONExtract('%s', 'Array(JSON)')" \
+  # dashboards_raw stores params and panels as plain String now (the MV
+  # JSONExtract's on the way to `dashboards`). Just splice the JSON text
+  # in — no JSONExtract wrap needed at this layer.
+  printf "INSERT INTO ${DB}.dashboards_raw (slug, title, subtitle, spec_version, params, panels) SELECT '%s', '%s', '%s', %s, '%s', '%s'" \
     "$(esc "$slug")" \
     "$(esc "$title")" \
     "$(esc "$subtitle")" \

@@ -18,12 +18,20 @@ EXPECTED_DASHBOARDS_COLUMNS = {
     "updated_at":   ("DateTime",      "DEFAULT"),
 }
 
-# Writer-settable columns: dashboards minus owner and updated_at, which
-# are supplied by the MV (currentUser() / now()).
-WRITER_SETTABLE = {"slug", "title", "subtitle", "concurrent", "spec_version",
-                   "params", "panels", "meta", "tags"}
-EXPECTED_RAW_COLUMNS = {k: v for k, v in EXPECTED_DASHBOARDS_COLUMNS.items()
-                       if k in WRITER_SETTABLE}
+# dashboards_raw stores the JSON payload columns as plain String (the
+# agent passes JSON-encoded text). The MV parses these on the way to
+# `dashboards`. Owner and updated_at are MV-supplied — not on raw.
+EXPECTED_RAW_COLUMNS = {
+    "slug":         ("String", ""),
+    "title":        ("String", ""),
+    "subtitle":     ("String", "DEFAULT"),
+    "concurrent":   ("Bool",   "DEFAULT"),
+    "spec_version": ("UInt8",  "DEFAULT"),
+    "params":       ("String", "DEFAULT"),
+    "panels":       ("String", "DEFAULT"),
+    "meta":         ("String", "DEFAULT"),
+    "tags":         ("String", "DEFAULT"),
+}
 
 
 def _columns(ch, table: str) -> dict[str, tuple[str, str]]:
@@ -108,19 +116,19 @@ def test_dashboards_mv_wires_raw_to_dashboards(ch):
 
 def test_insert_into_raw_propagates_to_dashboards(ch):
     # Sanity: insert into dashboards_raw, see a row appear in dashboards
-    # with owner = currentUser() and a non-zero updated_at.
+    # with owner = currentUser() and a non-zero updated_at. The agent
+    # passes JSON-encoded text strings; the MV parses on the way in.
     #
-    # NOTE: uses INSERT ... SELECT form intentionally. ClickHouse 26.3
+    # NOTE: uses INSERT ... SELECT form intentionally. ClickHouse 26.x
     # has a bug where currentUser() inside any expression evaluated
     # after an INSERT ... VALUES (including DEFAULTs and MV SELECT
     # bodies) returns '' instead of the actual user. The MCP reflected
     # write tool emits INSERT statements that flow through the SELECT
-    # path so this is the realistic call shape. See docs/SANITIZATION.md
-    # for the longer story.
+    # path so this is the realistic call shape.
     ch.command(
         f"INSERT INTO {ch.db_name}.dashboards_raw "
         "(slug, title, subtitle, concurrent, spec_version, params, panels, meta, tags) "
-        "SELECT 'smoke', 'Smoke', 'hi', false, 1, [], [], '{}', []"
+        "SELECT 'smoke', 'Smoke', 'hi', false, 1, '[]', '[]', '{}', '[]'"
     )
     rows = ch.query(
         f"SELECT slug, title, owner, spec_version, "
@@ -136,10 +144,10 @@ def test_insert_into_raw_propagates_to_dashboards(ch):
 
 
 def test_insert_values_form_owner_quirk(ch):
-    """Regression check on the CH 26.3 quirk: INSERT...VALUES leaves
+    """Regression check on the CH 26.x quirk: INSERT...VALUES leaves
     owner empty. If this test starts failing because owner = 'default',
-    that means the upstream bug is fixed and we can drop the SELECT-form
-    requirement from docs/SANITIZATION.md."""
+    the upstream bug is fixed and the SELECT-form note in
+    docs/SANITIZATION.md / the skill can be dropped."""
     ch.command(
         f"INSERT INTO {ch.db_name}.dashboards_raw "
         "(slug, title) VALUES ('quirk', 'Q')"
@@ -155,8 +163,8 @@ def test_insert_values_form_owner_quirk(ch):
             f"owner = {rows[0][0]!r}. Drop the SELECT-form requirement."
         )
     assert rows[0][0] == "", (
-        "expected the documented CH 26.3 quirk to leave owner empty on "
-        "INSERT...VALUES; got {rows[0][0]!r}"
+        "expected the documented CH quirk to leave owner empty on "
+        f"INSERT...VALUES; got {rows[0][0]!r}"
     )
 
 

@@ -14,17 +14,17 @@ import json
 
 
 def _insert(ch, slug: str, panels: list[dict]) -> None:
-    """Insert one dashboard row through the SELECT path (CH 26.3
+    """Insert one dashboard row through the SELECT path (CH 26.x
     currentUser()-quirk-safe — see test_dashboards_table.py).
 
-    Array(JSON) doesn't accept CAST from a raw JSON-array string;
-    use JSONExtract(s, 'Array(JSON)') instead, which parses the array
-    and casts each element."""
+    `dashboards_raw.panels` is plain String now (JSON-encoded text);
+    the MV does the JSONExtract on the way to `dashboards.panels`.
+    Tests pass the JSON text directly — same shape an agent would."""
     panels_json = json.dumps(panels)
     ch.command(
         f"INSERT INTO {ch.db_name}.dashboards_raw "
         "(slug, title, panels) "
-        "SELECT %(slug)s, %(title)s, JSONExtract(%(panels)s, 'Array(JSON)')",
+        "SELECT %(slug)s, %(title)s, %(panels)s",
         parameters={"slug": slug, "title": slug.title(), "panels": panels_json},
     )
 

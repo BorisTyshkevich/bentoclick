@@ -1,7 +1,7 @@
-"""Direct unit tests for the sanitize_panel function.
+"""Direct unit tests for the sanitize_json_text function.
 
-These call the function with a JSON literal panel and assert on the
-returned JSON. The MV pipeline integration is tested in
+These call the function with JSON-encoded text and assert on the
+parsed result. The MV pipeline integration is tested in
 test_mv_pipeline.py.
 """
 
@@ -11,12 +11,18 @@ import json
 
 
 def _sanitize(ch, panel_json: str) -> dict:
-    """Run sanitize_panel on a JSON panel and return the parsed result."""
+    """Run sanitize_json_text on JSON text and return the parsed result.
+
+    Wraps a single panel in `[ ... ]` so the input shape matches what
+    the MV sees (panels column is an array). Each case below passes the
+    panel object JSON text; we array-wrap on the way in and unwrap on
+    the way out."""
+    array_text = "[" + panel_json + "]"
     result = ch.query(
-        "SELECT toJSONString(sanitize_panel(CAST(%(p)s AS JSON))) AS s",
-        parameters={"p": panel_json},
+        "SELECT sanitize_json_text(%(p)s) AS s",
+        parameters={"p": array_text},
     ).result_rows[0][0]
-    return json.loads(result)
+    return json.loads(result)[0]
 
 
 def test_strips_script_block(ch):

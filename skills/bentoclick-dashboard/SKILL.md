@@ -33,9 +33,11 @@ on param change). No raw-HTML dashboards.
 ## Save
 
 Call the **`save_dashboard`** MCP tool with the spec values as
-arguments. `slug` and `title` are required; the rest map to the
-columns above (`subtitle`, `concurrent`, `spec_version`, `params`,
-`panels`, plus optional `meta` and `tags`).
+arguments. `slug` and `title` are required; the rest are optional and
+map to the columns: `subtitle`, `concurrent`, `spec_version`, plus
+`params`, `panels`, `meta`, `tags` — these last four are passed as
+**JSON-encoded text strings** (the agent stringifies them; the server
+parses on the way in).
 
 The server writes through a sanitizing materialized view that strips
 `<script>`, `<iframe>`, event handlers, and `javascript:` URLs from
