@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<!--
+  dash — OAuth callback page.
+
+  Exchanges the authorization code for a bearer token against the AS's
+  /oauth/token endpoint. Stores the bearer in localStorage (the value the SPA
+  uses to talk to ClickHouse directly).
+
+  Source: adapted from /Users/Workspaces/altinity/altinity-claude-otel/clickhouse/content/spa/mcp-callback.html.
+  Difference: MCP URL is not hardcoded — it's read from /config.json fetched
+  at boot. AS token endpoint comes from cached AS metadata.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Authenticating…</title>
+<style>
+  body{font:14px system-ui,-apple-system,sans-serif;background:#1a1a2e;color:#e0e0e0;display:grid;place-items:center;height:100vh;margin:0}
+  .err{color:#ff6b6b;white-space:pre-wrap;max-width:min(720px,90vw)}
+</style>
+</head>
+<body>
+<p id="s">Exchanging token…</p>
+<script>
+(async function(){
+  "use strict";
+  var CID_KEY = "mcp_cid_v3";
+  var CLIENT_KEY = "mcp_oauth_client_id";
+  var OLD_CID_KEYS = ["mcp_cid", "mcp_cid_v2"];
+  var TOK_KEY = "mcp_tok";
+  var AS_KEY = "mcp_as_meta_v2";
+  var OLD_AS_KEY = "mcp_as_meta";
+  var q = new URLSearchParams(location.search);
+  var code = q.get("code");
+  var state = q.get("state");
+  var err = q.get("error");
+  var status = document.getElementById("s");
+
+  function fail(msg) {
+    status.className = "err";
+    status.textContent = msg;
+  }
+
+  OLD_CID_KEYS.forEach(function(k){ localStorage.removeItem(k); });
+  localStorage.removeItem(OLD_AS_KEY);
+
+  if (err) return fail("Auth error: " + err);
+  if (!code || !state) return fail("Missing code/state");
+
+  var rawState = sessionStorage.getItem("pkce_state");
+  if (!rawState) return fail("No pending auth session");
+
+  var saved;
+  try { saved = JSON.parse(rawState); }
+  catch (_) { return fail("Corrupt session"); }
+  if (!saved || saved.state !== state) return fail("State mismatch (CSRF?)");
+  sessionStorage.removeItem("pkce_state");
+
+  var verifier = sessionStorage.getItem("pkce_v");
+  var clientId = localStorage.getItem(CLIENT_KEY) || localStorage.getItem(CID_KEY);
+  var meta = null;
+  try { meta = JSON.parse(localStorage.getItem(AS_KEY) || "null"); }
+  catch (_) {}
+
+  if (!verifier || !clientId) return fail("Missing verifier/client; return to the dashboard and log in again");
+  if (!meta || !meta.token_endpoint) return fail("Missing AS metadata; return to the dashboard and log in again");
+  sessionStorage.removeItem("pkce_v");
+
+  var returnTo = (
+    typeof saved.return_to === "string" &&
+    /^\/[^/]/.test(saved.return_to) &&
+    saved.return_to.length <= 2048 &&
+    !/^\/mcp-callback(?:[/?#]|$)/.test(saved.return_to)
+  ) ? saved.return_to : "/";
+
+  // Pull MCP URL from /config.json for the RFC 8707 resource parameter.
+  // Required so AS issues a token whose `aud` matches the MCP advertisement.
+  var mcpUrl = "";
+  try {
+    var cfg = await fetch("/config.json", { headers: { "Accept": "application/json" }, cache: "no-store" });
+    if (cfg.ok) {
+      var j = await cfg.json();
+      mcpUrl = (j.mcp_url || "").replace(/\/$/, "");
+    }
+  } catch (_) {}
+  if (!mcpUrl) return fail("Missing mcp_url in /config.json");
+
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ ctrl.abort(); }, 20000);
+  fetch(meta.token_endpoint, {
+    method: "POST",
+    signal: ctrl.signal,
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: code,
+      redirect_uri: location.origin + "/mcp-callback",
+      client_id: clientId,
+      code_verifier: verifier,
+      resource: mcpUrl + "/"
+    })
+  }).then(function(resp){
+    clearTimeout(timer);
+    return resp.json();
+  }).then(function(data){
+    if (data.access_token) {
+      localStorage.setItem(TOK_KEY, data.access_token);
+      location.replace(returnTo);
+      return;
+    }
+    if (data.error === "invalid_client" || data.error === "unauthorized_client") {
+      localStorage.removeItem(CID_KEY);
+      localStorage.removeItem(CLIENT_KEY);
+      localStorage.removeItem(TOK_KEY);
+    }
+    fail("Token error: " + (data.error || JSON.stringify(data)));
+  }).catch(function(e){
+    clearTimeout(timer);
+    fail("Error: " + e.message);
+  });
+})();
+</script>
+</body>
+</html>

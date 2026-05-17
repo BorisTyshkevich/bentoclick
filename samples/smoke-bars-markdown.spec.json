@@ -1,0 +1,21 @@
+{
+  "title": "Smoke — bars + markdown",
+  "subtitle": "Install smoke test. Verifies the bars and markdown renderers.",
+  "spec_version": 1,
+  "params": [],
+  "panels": [
+    {
+      "type": "markdown",
+      "text": "## bentoclick is alive\n\nIf you can read this, the SPA shell loaded `/lib/v1/dash.js` and rendered a markdown panel.\n\nThe bar chart below pulls from `system.numbers` for a deterministic shape — no external tables required."
+    },
+    {
+      "id": "monthly",
+      "type": "bars",
+      "title": "Synthetic distribution",
+      "query": "SELECT toString(number + 1) AS label, (number + 1) * 13 AS value FROM numbers(8)",
+      "label_key": "label",
+      "value_key": "value",
+      "format": "num"
+    }
+  ]
+}

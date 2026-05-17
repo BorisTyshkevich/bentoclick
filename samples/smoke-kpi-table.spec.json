@@ -1,0 +1,41 @@
+{
+  "title": "Smoke — KPI strip + tables",
+  "subtitle": "Install smoke test. Verifies dashboards_raw → MV → dashboards round-trip and the kpi-strip + table renderers.",
+  "spec_version": 1,
+  "params": [],
+  "panels": [
+    {
+      "id": "kpis",
+      "type": "kpi-strip",
+      "width": 12,
+      "query": "SELECT 7 AS rows, 3 AS distinct_kinds, 'ok' AS health",
+      "tiles": [
+        { "key": "rows",           "label": "Rows",           "format": "num" },
+        { "key": "distinct_kinds", "label": "Distinct kinds", "format": "num" },
+        { "key": "health",         "label": "Health",         "format": "raw" }
+      ]
+    },
+    {
+      "id": "left",
+      "type": "table",
+      "width": 6,
+      "title": "Letters",
+      "query": "SELECT arrayJoin(['a','b','c','d','e']) AS letter, length(letter) AS len",
+      "columns": [
+        { "key": "letter", "label": "Letter" },
+        { "key": "len",    "label": "Length", "format": "num", "align": "right" }
+      ]
+    },
+    {
+      "id": "right",
+      "type": "table",
+      "width": 6,
+      "title": "Numbers",
+      "query": "SELECT number AS n, number * number AS squared FROM numbers(5)",
+      "columns": [
+        { "key": "n",       "label": "N",        "format": "num", "align": "right" },
+        { "key": "squared", "label": "Squared",  "format": "num", "align": "right" }
+      ]
+    }
+  ]
+}

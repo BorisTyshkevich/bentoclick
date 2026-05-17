@@ -1,0 +1,49 @@
+{
+  "title": "US Airline On-Time",
+  "subtitle": "BTS ontime — pick a year for the snapshot. Requires the `ontime.fact_ontime` table.",
+  "spec_version": 1,
+  "params": [
+    { "name": "year", "type": "int", "min": 1987, "max": 2025, "default": 2023, "label": "Year" }
+  ],
+  "panels": [
+    {
+      "id": "kpis", "type": "kpi-strip", "width": 12,
+      "query": "SELECT count() AS flights, uniqExact(Reporting_Airline) AS airlines, round(avg(DepDelayMinutes), 1) AS avg_delay, countIf(DepDel15 = 0 AND Cancelled = 0) / count() AS ontime_share, countIf(Cancelled = 1) AS cancelled FROM ontime.fact_ontime WHERE Year = {{year}}",
+      "tiles": [
+        { "key": "flights",      "label": "Total flights",       "format": "num" },
+        { "key": "airlines",     "label": "Airlines",            "format": "num" },
+        { "key": "avg_delay",    "label": "Avg dep delay (min)", "format": "raw" },
+        { "key": "ontime_share", "label": "On-time departure",   "format": "pct" },
+        { "key": "cancelled",    "label": "Cancelled",           "format": "num" }
+      ]
+    },
+    {
+      "id": "airlines", "type": "table", "width": 6, "title": "Top 10 airlines",
+      "query": "SELECT Reporting_Airline AS airline, count() AS flights, avgOrNull(DepDelayMinutes) AS avg_delay, countIf(DepDel15 = 0 AND Cancelled = 0) / count() AS ontime_share FROM ontime.fact_ontime WHERE Year = {{year}} GROUP BY airline ORDER BY flights DESC LIMIT 10",
+      "columns": [
+        { "key": "airline",      "label": "Airline" },
+        { "key": "flights",      "label": "Flights",   "format": "num", "align": "right" },
+        { "key": "avg_delay",    "label": "Avg delay", "format": "raw", "align": "right" },
+        { "key": "ontime_share", "label": "% on-time", "format": "pct", "align": "right" }
+      ]
+    },
+    {
+      "id": "airports", "type": "table", "width": 6, "title": "Top 10 origin airports",
+      "query": "SELECT OriginCode AS origin, any(OriginCityName) AS city, count() AS flights, avgOrNull(DepDelayMinutes) AS avg_delay FROM ontime.fact_ontime WHERE Year = {{year}} GROUP BY origin ORDER BY flights DESC LIMIT 10",
+      "columns": [
+        { "key": "origin",    "label": "Origin" },
+        { "key": "city",      "label": "City" },
+        { "key": "flights",   "label": "Flights",   "format": "num", "align": "right" },
+        { "key": "avg_delay", "label": "Avg delay", "format": "raw", "align": "right" }
+      ]
+    },
+    {
+      "id": "monthly", "type": "bars",
+      "title": "Monthly flight volume",
+      "query": "SELECT formatDateTime(toDate(toString({{year}}) || '-' || lpad(toString(Month), 2, '0') || '-01'), '%b %Y') AS label, count() AS value FROM ontime.fact_ontime WHERE Year = {{year}} GROUP BY Month ORDER BY Month",
+      "label_key": "label",
+      "value_key": "value",
+      "format": "num"
+    }
+  ]
+}

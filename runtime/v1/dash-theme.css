@@ -1,0 +1,256 @@
+/* dash-theme.css  v1.1
+   Shared dark theme tokens + element baselines for dashboards.
+   Load via:
+     <link rel="stylesheet" href="/lib/v1/dash-theme.css">
+   See skill/dash-builder/references/theme.md for the class catalogue.
+
+   v1.1 polish pass: bigger cards, headline KPIs, mixed-case headings,
+   multi-hue accent palette, subtle backdrop, skeleton loaders. */
+
+:root {
+  --bg:               #1a1a2e;
+  --bg-2:             #22223e;
+  --fg:               #e0e0e0;
+  --fg-dim:           #9090a8;
+
+  /* Promoted: four accents instead of one. Renderer picks based on
+     panel role (KPI value = primary, links = secondary, etc.). */
+  --accent:           #00d4aa;   /* primary — KPI values, "OK" state */
+  --accent-hover:     #00b894;
+  --accent-secondary: #5cd1ff;   /* secondary series, links, info */
+  --accent-warm:      #f5a623;   /* warnings, mid badges */
+  --accent-rose:      #e94560;   /* errors, "stop" states */
+  /* Back-compat: existing rules referenced --error/--warn/--link. */
+  --error:            #e94560;
+  --warn:             #f5a623;
+  --link:             #5cd1ff;
+
+  --rule:             #2a2a3e;
+  --rule-strong:      rgba(255, 255, 255, 0.08);
+  --shadow:
+    0 6px 24px rgba(0, 0, 0, 0.25),
+    0 1px 3px rgba(0, 0, 0, 0.4);
+  --radius:           14px;      /* was 6px */
+}
+
+* { box-sizing: border-box; }
+body {
+  /* Subtle backdrop — radial accent glow at top, vertical fade into deeper
+     navy at bottom. Gives depth without decoration. */
+  background:
+    radial-gradient(1200px 600px at 50% -200px, rgba(0, 212, 170, 0.04), transparent 60%),
+    linear-gradient(180deg, #1a1a2e 0%, #161626 100%);
+  background-attachment: fixed;
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0; padding: 24px 28px;
+  min-height: 100vh;
+}
+h1, h2, h3 { margin: 0 0 14px; font-weight: 700; color: var(--fg); }
+h1 { font-size: 22px; letter-spacing: -0.3px; }
+h2 {
+  /* Mixed-case panel titles read as English, not yelled. Reserve uppercase
+     for actual section dividers via the .section variant. */
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+h2.section {
+  /* Opt-in section divider style: small caps, dimmer color, more spacing. */
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--fg-dim);
+  margin-top: 28px;
+}
+a { color: var(--accent-secondary); }
+
+button, .btn {
+  background: var(--accent); color: var(--bg); border: none;
+  padding: 8px 16px; border-radius: var(--radius);
+  font-weight: 600; cursor: pointer;
+}
+button:hover, .btn:hover { background: var(--accent-hover); }
+
+input, select {
+  background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--rule);
+  padding: 6px 10px; border-radius: var(--radius);
+}
+
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--rule); font-size: 13px; }
+th { color: var(--fg-dim); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; }
+/* Sticky table headers — useful for long tables that scroll inside .card. */
+.card table thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-2);
+}
+td.right, th.right { text-align: right; }
+/* Click-selectable table rows (used by hybrid drill-down content + future
+   navigation patterns). */
+tr.click { cursor: pointer; transition: background 0.12s; }
+tr.click:hover { background: rgba(0, 212, 170, 0.06); }
+tr.sel,
+tr.selected-row {
+  background: rgba(0, 212, 170, 0.14);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.card {
+  background: var(--bg-2);
+  padding: 22px 24px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+/* Per-card accent left-border, opt-in via spec `accent` field. Useful for
+   marking the headline panel(s); used implicitly by the Hero panel type. */
+.card[data-accent="primary"]   { border-left: 4px solid var(--accent); }
+.card[data-accent="secondary"] { border-left: 4px solid var(--accent-secondary); }
+.card[data-accent="warm"]      { border-left: 4px solid var(--accent-warm); }
+.card[data-accent="rose"]      { border-left: 4px solid var(--accent-rose); }
+
+/* Hero narrative card — prose layout with accent left-border. Pairs label
+   (small caps, accent) with body paragraph; highlight spans (.hl) from
+   {{field!}} template placeholders read in the accent color. */
+.card.hero-card {
+  padding: 26px 28px;
+  margin-bottom: 18px;
+}
+.card.hero-card h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+.card.hero-card p {
+  margin: 0;
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.card.hero-card strong { color: var(--fg); }
+.card.hero-card .hl { color: var(--accent); font-weight: 600; }
+
+/* KPI strip — auto-fit so 1 / 3 / 4 / 5 tiles all flow gracefully without
+   a media query. Each tile claims ≥180px; the grid distributes remaining
+   space evenly. */
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.card.kpi { padding: 22px 18px 18px; }
+.kpi .v {
+  font-size: 36px;             /* was 26px — headline numbers should look like headlines */
+  line-height: 1.05;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--accent);
+}
+.kpi .l {
+  font-size: 10px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-top: 10px;
+}
+/* Optional third line under a KPI tile (e.g. "Southwest Airlines", "9 airports"). */
+.kpi .n { font-size: 12px; color: var(--fg-dim); margin-top: 6px; font-style: italic; }
+
+/* Skeleton loaders — shimmering placeholders sized to mirror the eventual
+   data. Used in the initial KPI tile state and the loading-row of tables. */
+.skeleton {
+  background: linear-gradient(90deg,
+              var(--bg) 0%,
+              rgba(255, 255, 255, 0.06) 50%,
+              var(--bg) 100%);
+  background-size: 200% 100%;
+  animation: skeleton 1.4s ease-in-out infinite;
+  border-radius: 4px;
+}
+@keyframes skeleton {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.kpi .v.loading {
+  color: transparent;
+  display: inline-block;
+  min-width: 70%;
+  min-height: 36px;
+}
+
+/* Table action bar — for export buttons etc. at the bottom of a table card. */
+.table-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.table-actions .btn-mini {
+  background: transparent; color: var(--fg-dim);
+  border: 1px solid var(--rule); border-radius: 4px;
+  padding: 4px 10px; font-size: 11px; cursor: pointer;
+}
+.table-actions .btn-mini:hover { color: var(--fg); border-color: var(--accent); }
+
+/* Cell-level badge — any column can opt in via a `badge` map in the spec. */
+.cell-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; line-height: 1.4;
+}
+.cell-badge-high { background: rgba(0, 212, 170, 0.15); color: var(--accent); }
+.cell-badge-mid  { background: rgba(245, 166, 35, 0.15); color: var(--warn);   }
+.cell-badge-low  { background: rgba(233, 69, 96, 0.15);  color: var(--error);  }
+
+/* Layout grids */
+.row-2 { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; margin-bottom: 16px; }
+.row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+
+/* Horizontal bar (share/progress) */
+.bar-cell { display: flex; align-items: center; gap: 6px; }
+.bar-bg { flex: 1; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+
+/* Badges */
+.badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-opus   { background: #2a1f4e; color: #a78bfa; }
+.badge-haiku  { background: #1a2e2e; color: var(--accent); }
+.badge-sonnet { background: #2e2a1a; color: var(--warn); }
+
+/* Status tokens */
+.status-ok  { color: var(--accent); }
+.status-err { color: var(--error); }
+
+/* Ledger row states */
+.led-ok   { color: var(--accent); }
+.led-pend { color: var(--warn); }
+.led-fail { color: var(--error); }
+
+/* Collapsible blocks */
+details summary { cursor: pointer; color: var(--fg-dim); font-size: 12px; user-select: none; }
+
+/* Query ledger — when used with DASH.ledger.mount, each <tr> shows a
+   collapsible SQL row beneath. The toggle arrow rotates on expansion. */
+.ledger-row-sql { display: none; background: var(--bg); }
+.ledger-row-sql.open { display: table-row; }
+.ledger-toggle {
+  display: inline-block; width: 10px; transition: transform 0.15s;
+  color: var(--fg-dim); font-family: ui-monospace, Menlo, monospace;
+}
+.ledger-toggle.open { transform: rotate(90deg); }
+
+/* Inline SQL preview inside the ledger */
+pre {
+  margin: 4px 0 0; font-size: 10px; color: var(--fg-dim);
+  white-space: pre-wrap; word-break: break-all;
+  background: #111; padding: 6px; border-radius: 4px;
+  max-height: 120px; overflow: auto;
+}
+
+@media (max-width: 800px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+  .row-2, .row-3 { grid-template-columns: 1fr; }
+}

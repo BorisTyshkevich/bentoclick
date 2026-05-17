@@ -20,7 +20,11 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       reportsDirectory: resolve(here, 'runtime/coverage'),
-      include: ['runtime/v1/**/*.js'],
+      // dash.js is the renderable runtime — happy-dom-testable in unit form.
+      // spa.js is the OAuth/routing bootstrap that hits real browser globals
+      // (location, crypto.subtle, real OAuth servers) and is verified via the
+      // chrome-mcp + claude.ai antalya e2e suite, not unit tests.
+      include: ['runtime/v1/dash.js'],
       // Statements/lines/functions are the user-facing coverage signal.
       // Branches is set lower because v8's branch counter is strict —
       // it counts each side of every `||` short-circuit fallback as a

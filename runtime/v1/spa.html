@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!--
+  dash — SPA shell for /app, /v/<owner>/<slug>, /p/<name>.
+
+  Served from ClickHouse user_files as file://dash/spa.html by the handler in
+  handlers/dash_handlers.xml. The shell is public; it contains no dashboard
+  content.
+
+  Dashboard and page content are fetched from this shell by calling ClickHouse
+  HTTPS directly (`<ch_url>/?query=…`) with the viewer's Bearer token. No
+  anonymous access to any dashboards or pages row.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="cache-control" content="no-store">
+<title>Dashboards</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%231a1a2e'/><path d='M16 44 V22 h5 v22z M27 44 V30 h5 v14z M38 44 V16 h5 v28z M49 44 V24 h5 v20z' fill='%2300d4aa'/></svg>">
+<style>
+  html,body{margin:0;padding:0;height:100%;font-family:system-ui,-apple-system,sans-serif;background:#1a1a2e;color:#e0e0e0}
+  #status{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;max-width:80%}
+  #status h2{color:#00d4aa;margin:0 0 8px}
+  #status .err{color:#ff6b6b;white-space:pre-wrap;text-align:left;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  #actions{margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  #actions a{color:#00d4aa;text-decoration:none;padding:6px 14px;border:1px solid #00d4aa;border-radius:4px;cursor:pointer;font-size:13px}
+  #actions a:hover{background:#00d4aa;color:#1a1a2e}
+  iframe{border:0;width:100%;height:100%;display:block}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<div id="status"><h2>Loading…</h2><p id="msg">Checking session…</p><div id="actions" class="hide"></div></div>
+<iframe id="frame" class="hide" title="Dashboard" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms"></iframe>
+<script src="/lib/v1/spa.js?v=1"></script>
+</body>
+</html>

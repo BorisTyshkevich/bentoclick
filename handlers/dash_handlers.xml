@@ -1,0 +1,147 @@
+<?xml version="1.0"?>
+<!--
+  dash — HTTP handlers for the dashboard SPA.
+
+  Apply as a ClickHouse config.d fragment. On the demo cluster, push via:
+    acmctl setting create <cluster-id> dash_handlers @handlers/dash_handlers.xml
+    acmctl cluster push <cluster-id>
+
+  All referenced assets live under /var/lib/clickhouse/user_files/dash/ and
+  are written there by install.sh via `INSERT INTO FUNCTION file('dash/<name>', 'RawBLOB', 'String')`.
+
+  Note: ClickHouse loads only the last <http_handlers> block across config.d.
+  If another fragment on this cluster also defines <http_handlers> (e.g. an
+  OAuth callback handler), install.sh merges the two before pushing.
+
+  Routes:
+    GET /app                          → SPA shell
+    GET /v/<owner>/<slug>             → SPA shell (route handled client-side)
+    GET /p/<name>                     → SPA shell (route handled client-side)
+    GET /lib/v1/spa.js                → SPA bootstrap JS
+    GET /lib/v1/dash-runtime.js       → shared dashboard runtime (window.DASH.*)
+    GET /lib/v1/dash-theme.css        → shared dashboard theme tokens
+    GET /mcp-callback                 → OAuth code → token exchange page
+    GET /config.json                  → runtime config (MCP/CH URLs, branding)
+    GET /oauth/client.json            → CIMD client metadata document
+-->
+<clickhouse>
+    <http_handlers>
+        <!-- SPA shell. Route parsing happens in spa.js. -->
+        <rule>
+            <url><![CDATA[regex:^(/app|/v/[^/]+/[^/]+|/p/[^/]+)/?(\?.*)?$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>text/html; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <!-- connect-src is intentionally narrow: the shell calls
+                         same-origin (config.json, CH) and the MCP for OAuth
+                         discovery. The dashboard iframe (srcdoc, sandboxed,
+                         null origin) inherits this CSP — `'self'` evaluates
+                         to nothing inside the iframe, so a malicious
+                         dashboard can't browser-side-exfil via fetch() to an
+                         arbitrary HTTPS endpoint. CH_FETCH still works
+                         because it's postMessage, not a network connect.
+                         At install time ${MCP_ORIGIN} is substituted to the
+                         deployment's MCP scheme+host. -->
+                    <Content-Security-Policy>default-src 'none';script-src 'self' 'unsafe-inline' 'unsafe-eval' https:;style-src 'self' 'unsafe-inline' https:;img-src 'self' data: https:;font-src 'self' data: https:;connect-src 'self' ${MCP_ORIGIN};frame-src 'self';object-src 'none';base-uri 'self'</Content-Security-Policy>
+                    <Cache-Control>no-store</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/spa.html</response_content>
+            </handler>
+        </rule>
+
+        <!-- SPA bootstrap JS. Versioned alongside the shell. -->
+        <rule>
+            <url><![CDATA[regex:^/lib/v1/spa\.js$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>application/javascript; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Cache-Control>no-store</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/spa.js</response_content>
+            </handler>
+        </rule>
+
+        <!-- OAuth callback page. PKCE verifier comes from sessionStorage; this
+             page exchanges the auth code for a bearer and posts back to the
+             opener. CSP is tighter than the SPA shell since no third-party
+             scripts run here. -->
+        <rule>
+            <url><![CDATA[regex:^/mcp-callback(\?.*)?$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <status>200</status>
+                <content_type>text/html; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Content-Security-Policy>default-src 'none';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline';connect-src https:;base-uri 'self';object-src 'none';frame-ancestors 'none'</Content-Security-Policy>
+                    <Cache-Control>no-store</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/mcp-callback.html</response_content>
+            </handler>
+        </rule>
+
+        <!-- Shared dashboard runtime + theme. Cached. Versioned via /lib/vN/. -->
+        <rule>
+            <url><![CDATA[regex:^/lib/v1/dash-runtime\.js$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>application/javascript; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Cache-Control>public, max-age=300, stale-while-revalidate=3600</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/dash-runtime.js</response_content>
+            </handler>
+        </rule>
+
+        <rule>
+            <url><![CDATA[regex:^/lib/v1/dash-theme\.css$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>text/css; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Cache-Control>public, max-age=300, stale-while-revalidate=3600</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/dash-theme.css</response_content>
+            </handler>
+        </rule>
+
+        <!-- Runtime config: MCP/CH URLs, email domain, branding, lib version.
+             Re-config is `INSERT INTO FUNCTION file('dash/config.json', ...)`
+             plus an immediate browser refresh (no-store). -->
+        <rule>
+            <url><![CDATA[regex:^/config\.json$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>application/json; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Cache-Control>no-store</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/config.json</response_content>
+            </handler>
+        </rule>
+
+        <!-- CIMD client metadata document. The SPA uses this URL as its
+             client_id when calling /oauth/authorize on the AS. -->
+        <rule>
+            <url><![CDATA[regex:^/oauth/client\.json$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>application/json; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Cache-Control>no-store</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/client.json</response_content>
+            </handler>
+        </rule>
+
+        <defaults/>
+    </http_handlers>
+</clickhouse>

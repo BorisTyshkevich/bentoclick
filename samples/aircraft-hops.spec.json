@@ -1,0 +1,38 @@
+{
+  "title": "Aircraft hops per day",
+  "subtitle": "Pick a date window and a minimum-hops threshold. Click a row in the top table to see the per-leg itinerary.",
+  "spec_version": 1,
+  "params": [
+    { "name": "from_year", "type": "int", "min": 1987, "max": 2025, "default": 2020, "label": "From year" },
+    { "name": "to_year",   "type": "int", "min": 1987, "max": 2025, "default": 2025, "label": "To year" },
+    { "name": "min_hops",  "type": "int", "min": 2,    "max": 10,   "default": 7,    "label": "Min hops" }
+  ],
+  "panels": [
+    {
+      "id": "kpis", "type": "kpi-strip", "width": 12,
+      "query": "WITH per_day AS (SELECT FlightDate AS d, Tail_Number AS tail, count() AS hops FROM ontime.fact_ontime WHERE FlightDate >= toDate(concat(toString({{from_year}}),'-01-01')) AND FlightDate < toDate(concat(toString({{to_year}}+1),'-01-01')) AND Cancelled=0 AND Tail_Number != '' GROUP BY d, tail HAVING hops >= {{min_hops}}) SELECT max(hops) AS max_hops, count() AS rotations, uniqExact(tail) AS tails FROM per_day",
+      "tiles": [
+        { "key": "max_hops",  "label": "Max hops / day",  "format": "num", "note": "ceiling across window" },
+        { "key": "rotations", "label": "Rotations",      "format": "num" },
+        { "key": "tails",     "label": "Distinct tails", "format": "num" }
+      ]
+    },
+    {
+      "id": "longest", "type": "table", "width": 12, "title": "Top 10 longest by total miles (click a row to drill)",
+      "query": "WITH per_day AS (SELECT FlightDate AS d, Tail_Number AS tail, Reporting_Airline AS carrier, count() AS hops, sum(Distance) AS miles FROM ontime.fact_ontime WHERE FlightDate >= toDate(concat(toString({{from_year}}),'-01-01')) AND FlightDate < toDate(concat(toString({{to_year}}+1),'-01-01')) AND Cancelled=0 AND Tail_Number != '' GROUP BY d, tail, carrier HAVING hops >= {{min_hops}}) SELECT toString(d) AS date, tail, carrier, hops, miles FROM per_day ORDER BY miles DESC LIMIT 10",
+      "columns": [
+        { "key": "date",    "label": "Date" },
+        { "key": "tail",    "label": "Tail" },
+        { "key": "carrier", "label": "Carrier" },
+        { "key": "hops",    "label": "Hops",  "format": "num", "align": "right",
+          "badge": { "8+": "high", "7+": "mid", "0+": "low" } },
+        { "key": "miles",   "label": "Miles", "format": "num", "align": "right" }
+      ]
+    },
+    {
+      "id": "drill", "type": "script", "width": 12,
+      "html": "<div class='card'><h2 id='dt'>Click a row above</h2><div id='db' class='muted'>Peak this window: <span id='peak'>—</span>. Pick a rotation to see its per-leg itinerary.</div></div>",
+      "script": "await DASH.spec.ready;\n\nfunction renderPeak() {\n  const r = DASH.spec.panels.kpis.rows?.[0];\n  if (r) document.getElementById('peak').textContent = r.max_hops + ' hops';\n}\nrenderPeak();\n\nfunction bind() {\n  const st = DASH.spec.panels.longest;\n  if (!st || !st.tbodyEl) return;\n  st.tbodyEl.querySelectorAll('tr').forEach((tr, i) => {\n    tr.classList.add('click');\n    tr.addEventListener('click', () => show(st.rows[i]));\n  });\n}\nbind();\n\nasync function show(row) {\n  document.getElementById('dt').textContent =\n    `${row.tail} on ${row.date} - ${row.carrier} (${row.hops} legs)`;\n  document.getElementById('db').textContent = 'Loading legs...';\n  const r = await DASH.spec.fetch('legs',\n    `SELECT CRSDepTime, OriginCode, DestCode, Distance FROM ontime.fact_ontime WHERE FlightDate = '${row.date}' AND Tail_Number = '${row.tail}' ORDER BY CRSDepTime`);\n  document.getElementById('db').innerHTML = r.rows.map(l => {\n    const t = String(l.CRSDepTime).padStart(4,'0');\n    return `${t.slice(0,2)}:${t.slice(2)} ${l.OriginCode} - ${l.DestCode} (${l.Distance} mi)`;\n  }).join('<br>');\n}\n\nDASH.spec.on('panel:loaded', e => {\n  if (e.id === 'kpis')    renderPeak();\n  if (e.id === 'longest') bind();\n});"
+    }
+  ]
+}
