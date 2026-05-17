@@ -1,0 +1,137 @@
+# Build and publish two release artifacts on a `v*` tag push:
+#
+#   1. `bentoclick-<version>.tar.gz` — install distro
+#      (install.sh + schema/ + runtime/ + handlers/ + config/ +
+#      samples/ + uninstall.sh + README.md), unpackable on any
+#      machine with ClickHouse credentials to bootstrap a fresh
+#      bentoclick install.
+#
+#   2. `bentoclick-dashboard-skill-<version>.zip` — the agent skill
+#      (skills/bentoclick-dashboard/) packaged for upload to a
+#      claude.ai personal connector or any other host that consumes
+#      a single zip.
+#
+# Tag scheme: `v<semver>` (e.g. `v0.1.0`, `v0.2.0-rc1`). Tagging a
+# commit triggers the workflow; the release is published only after
+# `make test` is green (same gate as PRs).
+#
+# Manual builds: `workflow_dispatch` builds the artifacts but does
+# NOT publish a release — the artifacts attach to the workflow run
+# for download.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed by softprops/action-gh-release
+
+jobs:
+  build-and-release:
+    name: build distro + skill, publish to release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v="${GITHUB_REF#refs/tags/v}"
+          else
+            v="dev-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "==> version=$v"
+
+      # ---- Gate: same test suite as tests.yml. Tag pushes shouldn't
+      # produce releases for red commits. ----
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Python deps
+        run: |
+          python -m venv tests/.venv
+          tests/.venv/bin/pip install --upgrade pip
+          tests/.venv/bin/pip install -r tests/requirements.txt
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Run full test suite
+        run: make test
+
+      # ---- Build artifact 1: install distro ----
+      - name: Build install distro
+        id: distro
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          stage="dist/bentoclick-$v"
+          mkdir -p "$stage"
+          # Files / dirs that ship in the distro. Tests and CI bits
+          # (tests/, .github/, package*.json, Makefile, .gitignore)
+          # stay out — the distro is for fresh installs, not source
+          # development.
+          # No trailing slashes on source dirs — BSD `cp -R src/` and
+          # GNU `cp -R src/` disagree on whether to copy `src` or its
+          # contents. Without the slash both copy `src` as a subdir.
+          cp -R install.sh uninstall.sh README.md LICENSE \
+                schema runtime handlers config samples \
+                "$stage/"
+          # Pin the version into the README so an unpacked tarball
+          # can be cross-referenced with the release page.
+          printf '\n---\n_Packed from `%s` on %s._\n' \
+            "$GITHUB_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            >> "$stage/README.md"
+          tar -C dist -czf "dist/bentoclick-$v.tar.gz" "bentoclick-$v"
+          ls -la "dist/bentoclick-$v.tar.gz"
+          echo "path=dist/bentoclick-$v.tar.gz" >> "$GITHUB_OUTPUT"
+
+      # ---- Build artifact 2: skill zip ----
+      - name: Build skill zip
+        id: skill
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          mkdir -p dist
+          # Zip with `bentoclick-dashboard/` as the top-level dir so
+          # `unzip` produces the directory structure consumers expect.
+          (cd skills && zip -rq "../dist/bentoclick-dashboard-skill-$v.zip" \
+              bentoclick-dashboard/)
+          ls -la "dist/bentoclick-dashboard-skill-$v.zip"
+          echo "path=dist/bentoclick-dashboard-skill-$v.zip" >> "$GITHUB_OUTPUT"
+
+      # ---- workflow_dispatch path: just attach artifacts to the run ----
+      - name: Upload artifacts to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: bentoclick-${{ steps.ver.outputs.version }}
+          path: |
+            ${{ steps.distro.outputs.path }}
+            ${{ steps.skill.outputs.path }}
+          retention-days: 14
+
+      # ---- Tag-push path: publish a GitHub Release with both files ----
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: bentoclick ${{ steps.ver.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            ${{ steps.distro.outputs.path }}
+            ${{ steps.skill.outputs.path }}
