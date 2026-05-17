@@ -314,27 +314,41 @@ async function fetchDashboard(owner, slug) {
 // inlined JSON-in-script). The sanitize_panel MV scrubbed the panels
 // server-side; this layer is defense-in-depth.
 
-// Strip `export ` keywords from the module text so the body runs as a
-// classic script. Leaves named bindings as plain `const`/`function`,
-// keeps the bottom `window.DASH = ...` block intact, and the renderSpec
-// function is referenced as `window.DASH.renderSpec` by the iframe boot.
+// Convert an ES-module source string into a classic-script-compatible
+// equivalent. Strips top-level `import …` statements (including the
+// multi-line `import { a, b } from './x.js'` form) and the `export`
+// keyword on named declarations. Leaves the body otherwise untouched;
+// in particular the trailing `window.DASH = …` assignment survives so
+// the iframe boot can still reach renderSpec through DASH.
 function moduleToClassic(src) {
   return src
+    .replace(/^import\s+(?:[\s\S]+?from\s+)?['"][^'"]+['"]\s*;?/gm, '')
     .replace(/^export\s+(async\s+function|function|class|const|let|var)\s+/gm, '$1 ')
     .replace(/^export\s+\{[^}]*\};?$/gm, '');
 }
 
 // The iframe is sandboxed without `allow-same-origin`, so an ES-module
 // import from the null-origin srcdoc would fail CORS. We fetch the
-// runtime once and inline it as a classic <script>.
+// runtime + its sibling chart primitives, concatenate, strip the ESM
+// surface, and inline the result as a classic <script>. Order matters:
+// charts.js's exports must be defined before dash.js's renderers refer
+// to them — and after moduleToClassic, both files are just top-level
+// const/function declarations sharing one script scope.
 async function synthesizeSpecWrapper(spec) {
   var v = Math.max(1, Math.min(255, Number(spec.spec_version) || 1));
   var specJson = JSON.stringify(spec).replace(/<\/(?=script)/gi, '<\\/');
   var origin = location.origin;
-  var r = await withTimeout('/lib/v' + v + '/dash-runtime.js',
-    { headers: { 'Accept': 'application/javascript' }, cache: 'force-cache' });
-  if (!r.ok) throw new Error('runtime fetch failed: HTTP ' + r.status);
-  var runtimeJs = moduleToClassic(await r.text());
+  async function fetchRuntime(path) {
+    var r = await withTimeout('/lib/v' + v + path,
+      { headers: { 'Accept': 'application/javascript' }, cache: 'force-cache' });
+    if (!r.ok) throw new Error('runtime fetch failed: ' + path + ' HTTP ' + r.status);
+    return r.text();
+  }
+  var parts = await Promise.all([
+    fetchRuntime('/charts.js'),
+    fetchRuntime('/dash-runtime.js'),
+  ]);
+  var runtimeJs = moduleToClassic(parts.join('\n'));
   return ''
     + '<!doctype html><html lang="en"><head>'
     + '<meta charset="utf-8">'

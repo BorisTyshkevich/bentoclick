@@ -98,6 +98,23 @@
             </handler>
         </rule>
 
+        <!-- charts.js — sibling SVG primitives that dash.js imports.
+             Served as a sibling so the ESM static import in dash.js
+             resolves; the iframe boot path fetches it explicitly via
+             synthesizeSpecWrapper(). -->
+        <rule>
+            <url><![CDATA[regex:^/lib/v1/charts\.js$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>application/javascript; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Cache-Control>public, max-age=300, stale-while-revalidate=3600</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/charts.js</response_content>
+            </handler>
+        </rule>
+
         <rule>
             <url><![CDATA[regex:^/lib/v1/dash-theme\.css$]]></url>
             <methods>GET</methods>
