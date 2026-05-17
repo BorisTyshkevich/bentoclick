@@ -1,14 +1,18 @@
 <!DOCTYPE html>
 <!--
-  dash — OAuth callback page.
+  bentoclick — OAuth callback page.
 
-  Exchanges the authorization code for a bearer token against the AS's
-  /oauth/token endpoint. Stores the bearer in localStorage (the value the SPA
-  uses to talk to ClickHouse directly).
+  The OAuth provider redirects the browser here after the user
+  authenticates (the redirect_uri in the /oauth/authorize request
+  points at `<spa-origin>/mcp-callback`). This page exchanges the
+  authorization code for a bearer token against the AS's /oauth/token
+  endpoint, stores the bearer in localStorage (the value the SPA uses
+  to talk to ClickHouse directly), and redirects to the original
+  return_to URL. CH itself can't run OAuth — all the post-redirect
+  work happens here, in the browser, against static-served HTML/JS.
 
-  Source: adapted from /Users/Workspaces/altinity/altinity-claude-otel/clickhouse/content/spa/mcp-callback.html.
-  Difference: MCP URL is not hardcoded — it's read from /config.json fetched
-  at boot. AS token endpoint comes from cached AS metadata.
+  MCP URL is not hardcoded: it's read from /config.json at boot. The
+  AS token endpoint comes from cached AS metadata.
 -->
 <html lang="en">
 <head>

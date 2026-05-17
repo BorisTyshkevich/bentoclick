@@ -11,10 +11,9 @@
 // is used only for the OAuth bootstrap (RFC 9728 protected-resource
 // discovery, /oauth/authorize, /oauth/token).
 //
-// Source: adapted from /Users/Workspaces/altinity/altinity-claude-otel/clickhouse/content/spa/bootstrap.js
-//
-// Deploy: see dash/install.sh — pushes this file via
-// INSERT INTO FUNCTION file('dash/spa.js', 'RawBLOB', 'String') ...
+// Deploy: see install.sh — pushes this file to every cluster replica's
+// user_files via INSERT INTO FUNCTION clusterAllReplicas('{cluster}',
+// '<db>', '_asset_<safe-name>') against a File-engine table.
 
 import {
   escHtml,
