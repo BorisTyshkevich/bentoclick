@@ -134,12 +134,15 @@ export function svgRoot(opts) {
   const w = opts.width || 480;
   const h = opts.height || 220;
   const pad = Object.assign({ top: 8, right: 12, bottom: 24, left: 48 }, opts.padding || {});
+  // No `preserveAspectRatio: 'none'` and no fixed `height` attribute —
+  // the SVG scales uniformly with its container width, so circles stay
+  // round and text spacing stays proportional. CSS `max-width` on
+  // .chart-svg in dash-theme.css caps the upper bound so wide-screen
+  // dashboards don't grow charts to viewport-tall proportions.
   const svg = svgEl('svg', {
     viewBox: '0 0 ' + w + ' ' + h,
     width: '100%',
-    height: h,
     class: 'chart-svg',
-    preserveAspectRatio: 'none',
   });
   const plot = svgEl('g', { transform: 'translate(' + pad.left + ',' + pad.top + ')' });
   svg.appendChild(plot);

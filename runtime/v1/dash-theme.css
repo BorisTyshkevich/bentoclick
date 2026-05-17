@@ -214,8 +214,12 @@ tr.selected-row {
 .bar-bg { flex: 1; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
 .bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
 
-/* SVG charts (line/combo/chart panels) — drawn by runtime/v1/charts.js. */
-.chart-svg { display: block; overflow: visible; font: 10px ui-sans-serif, system-ui, sans-serif; }
+/* SVG charts (line/combo/chart panels) — drawn by runtime/v1/charts.js.
+   max-width caps wide-screen growth: the SVG scales uniformly with
+   container width (viewBox aspect ≈ 2:1), so without a cap a 1900px
+   panel would render a 950px-tall chart. 880px gives ~440px tall,
+   which fits dashboard cards. */
+.chart-svg { display: block; overflow: visible; font: 10px ui-sans-serif, system-ui, sans-serif; max-width: 880px; }
 .chart-axis-line { stroke: var(--rule); stroke-width: 1; }
 .chart-tick { stroke: var(--rule); stroke-width: 1; }
 .chart-tick-label { fill: var(--fg-dim); font-size: 10px; }
