@@ -64,11 +64,19 @@
   .btn-primary{display:block;width:100%;background:#00d4aa;color:#1a1a2e;border:0;padding:10px;border-radius:4px;cursor:pointer;font:inherit;font-weight:600;font-size:14px}
   .btn-primary:hover{background:#00b890}
   .btn-primary:disabled{opacity:.5;cursor:not-allowed}
+
+  /* Site footer — fixed bottom-right corner across /app, /v/<owner>/<slug>,
+     and the signed-out login card. Sits above the iframe via z-index so
+     dashboard content scrolling underneath doesn't hide it. */
+  .app-foot{position:fixed;right:10px;bottom:6px;font-size:10px;color:#6b7280;z-index:20;pointer-events:auto;letter-spacing:.02em}
+  .app-foot a{color:#9aa;text-decoration:none;border-bottom:1px dotted #4a4a5e}
+  .app-foot a:hover{color:#00d4aa;border-bottom-color:#00d4aa}
 </style>
 </head>
 <body>
 <div id="status"><h2>Loading…</h2><p id="msg">Checking session…</p><div id="actions" class="hide"></div></div>
 <iframe id="frame" class="hide" title="Dashboard" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms"></iframe>
+<div class="app-foot">Created by <a href="https://github.com/BorisTyshkevich/BentoClick" target="_blank" rel="noopener">BentoClick</a></div>
 <script type="module" src="/lib/v1/spa.js?v=1"></script>
 </body>
 </html>

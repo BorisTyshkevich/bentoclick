@@ -18,10 +18,14 @@
 <style>
   body{font:14px system-ui,-apple-system,sans-serif;background:#1a1a2e;color:#e0e0e0;display:grid;place-items:center;height:100vh;margin:0}
   .err{color:#ff6b6b;white-space:pre-wrap;max-width:min(720px,90vw)}
+  .app-foot{position:fixed;right:10px;bottom:6px;font-size:10px;color:#6b7280;letter-spacing:.02em}
+  .app-foot a{color:#9aa;text-decoration:none;border-bottom:1px dotted #4a4a5e}
+  .app-foot a:hover{color:#00d4aa;border-bottom-color:#00d4aa}
 </style>
 </head>
 <body>
 <p id="s">Exchanging token…</p>
+<div class="app-foot">Created by <a href="https://github.com/BorisTyshkevich/BentoClick" target="_blank" rel="noopener">BentoClick</a></div>
 <script>
 (async function(){
   "use strict";
