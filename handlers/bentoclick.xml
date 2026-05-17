@@ -24,7 +24,7 @@
     GET /lib/v1/dash.js               → shared dashboard runtime (window.DASH.*)
     GET /lib/v1/charts.js             → SVG chart primitives imported by dash.js
     GET /lib/v1/dash-theme.css        → shared dashboard theme tokens
-    GET /mcp-callback                 → OAuth code → token exchange page
+    GET /oauth/callback               → OAuth code → token exchange page
     GET /config.json                  → runtime config (MCP/CH URLs, branding)
     GET /oauth/client.json            → CIMD client metadata document
 -->
@@ -74,7 +74,7 @@
              opener. CSP is tighter than the SPA shell since no third-party
              scripts run here. -->
         <rule>
-            <url><![CDATA[regex:^/mcp-callback(\?.*)?$]]></url>
+            <url><![CDATA[regex:^/oauth/callback(\?.*)?$]]></url>
             <methods>GET</methods>
             <handler>
                 <type>static</type>
@@ -84,7 +84,7 @@
                     <Content-Security-Policy>default-src 'none';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline';connect-src https:;base-uri 'self';object-src 'none';frame-ancestors 'none'</Content-Security-Policy>
                     <Cache-Control>no-store</Cache-Control>
                 </http_response_headers>
-                <response_content>file://dash/mcp-callback.html</response_content>
+                <response_content>file://dash/oauth-callback.html</response_content>
             </handler>
         </rule>
 

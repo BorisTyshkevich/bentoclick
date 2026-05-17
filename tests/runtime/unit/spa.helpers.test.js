@@ -118,10 +118,10 @@ describe('spa-helpers — safeReturnTo (open-redirect guard)', () => {
     expect(safeReturnTo('javascript:alert(1)')).toBe('/');
   });
 
-  it('rejects /mcp-callback to prevent self-redirect loops', () => {
-    expect(safeReturnTo('/mcp-callback')).toBe('/');
-    expect(safeReturnTo('/mcp-callback?x=1')).toBe('/');
-    expect(safeReturnTo('/mcp-callback/foo')).toBe('/');
+  it('rejects /oauth/callback to prevent self-redirect loops', () => {
+    expect(safeReturnTo('/oauth/callback')).toBe('/');
+    expect(safeReturnTo('/oauth/callback?x=1')).toBe('/');
+    expect(safeReturnTo('/oauth/callback/foo')).toBe('/');
   });
 
   it('accepts plausible same-origin paths', () => {

@@ -53,7 +53,7 @@ export function assertSafe(name, v) {
 export function safeReturnTo(s) {
   if (typeof s !== 'string' || s.length === 0 || s.length > 2048) return '/';
   if (!/^\/[^/]/.test(s)) return '/';
-  if (/^\/mcp-callback(?:[/?#]|$)/.test(s)) return '/';
+  if (/^\/oauth\/callback(?:[/?#]|$)/.test(s)) return '/';
   return s;
 }
 

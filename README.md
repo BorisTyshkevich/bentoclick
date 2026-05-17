@@ -42,7 +42,7 @@ The installer:
    view, the writer/reader/definer roles, and the `bentoclick.dashboards`
    ReplicatedReplacingMergeTree (cluster-aware via `ON CLUSTER '{cluster}'`).
 2. Pushes the SPA runtime (`spa.html`, `spa.js`, `spa-helpers.js`,
-   `dash.js`, `charts.js`, `dash-theme.css`, `mcp-callback.html`) and
+   `dash.js`, `charts.js`, `dash-theme.css`, `oauth-callback.html`) and
    the handler XML to every cluster replica's `user_files/` via
    `INSERT INTO FUNCTION clusterAllReplicas(...)` against a per-asset
    File-engine table.

@@ -90,7 +90,7 @@ runtime/
     ├── dash-theme.css
     ├── spa.js               # SPA shell (version-agnostic for now)
     ├── spa.html
-    └── mcp-callback.html
+    └── oauth-callback.html
 ```
 
 When v2 lands, `runtime/v2/` sits alongside `runtime/v1/`. Both are

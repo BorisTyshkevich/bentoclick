@@ -211,7 +211,7 @@ async function startAuth(returnTo) {
   var c = await challenge(v);
   var u = new URL(meta.authorization_endpoint);
   u.searchParams.set('client_id', cid);
-  u.searchParams.set('redirect_uri', location.origin + '/mcp-callback');
+  u.searchParams.set('redirect_uri', location.origin + '/oauth/callback');
   u.searchParams.set('response_type', 'code');
   u.searchParams.set('code_challenge', c);
   u.searchParams.set('code_challenge_method', 'S256');

@@ -4,7 +4,7 @@
 
   The OAuth provider redirects the browser here after the user
   authenticates (the redirect_uri in the /oauth/authorize request
-  points at `<spa-origin>/mcp-callback`). This page exchanges the
+  points at `<spa-origin>/oauth/callback`). This page exchanges the
   authorization code for a bearer token against the AS's /oauth/token
   endpoint, stores the bearer in localStorage (the value the SPA uses
   to talk to ClickHouse directly), and redirects to the original
@@ -79,7 +79,7 @@
     typeof saved.return_to === "string" &&
     /^\/[^/]/.test(saved.return_to) &&
     saved.return_to.length <= 2048 &&
-    !/^\/mcp-callback(?:[/?#]|$)/.test(saved.return_to)
+    !/^\/oauth\/callback(?:[/?#]|$)/.test(saved.return_to)
   ) ? saved.return_to : "/";
 
   // Pull MCP URL from /config.json for the RFC 8707 resource parameter.
@@ -103,7 +103,7 @@
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code: code,
-      redirect_uri: location.origin + "/mcp-callback",
+      redirect_uri: location.origin + "/oauth/callback",
       client_id: clientId,
       code_verifier: verifier,
       resource: mcpUrl + "/"
