@@ -58,15 +58,72 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
 # ---- ClickHouse helpers ----
+# Password is written to a per-run .netrc tempfile rather than passed
+# via --user, which would appear in `ps` for the duration of each curl.
+HOST_FOR_NETRC="$(printf '%s' "$CH_HOST" | sed -e 's|^https*://||' -e 's|[:/].*$||')"
+NETRC_FILE="$(mktemp)"
+chmod 600 "$NETRC_FILE"
+printf 'machine %s\n  login %s\n  password %s\n' \
+  "$HOST_FOR_NETRC" "$CH_USER" "$CH_PASSWORD" > "$NETRC_FILE"
+trap 'rm -f "$NETRC_FILE"' EXIT
+
 ch_curl() {
-  curl -fsS \
-    --user "${CH_USER}:${CH_PASSWORD}" \
-    "$@"
+  curl -fsS --netrc-file "$NETRC_FILE" "$@"
 }
 
 ch_query() {
   # stdin = SQL; runs as the admin user.
-  ch_curl --data-binary @- "${CH_HOST}/?multi_statements=1&database=${DB}"
+  # Antalya CH 26.1 doesn't accept the `multi_statements` setting,
+  # and the HTTP path requires one statement per request anyway.
+  # Callers that need multi-statement files must split first.
+  ch_curl --data-binary @- "${CH_HOST}/"
+}
+
+# Apply a SQL file by splitting it on bare `;` lines and sending each
+# statement separately. Sufficient for our schema files; not a full
+# SQL parser.
+ch_apply_file() {
+  local file="$1"
+  python3 - <<PY
+import re, sys, urllib.request, base64, ssl, os
+
+raw = open("${file}").read()
+# Substitute templates.
+raw = raw.replace("\${DB}", "${DB}").replace("\${SPA_ORIGIN}", "${SPA_ORIGIN}")
+
+# Strip comment-only lines, then split on lines that END with ';'.
+stmts, buf = [], []
+for line in raw.splitlines():
+    s = line.strip()
+    if not s or s.startswith("--"):
+        continue
+    buf.append(line)
+    if s.endswith(";"):
+        stmt = "\n".join(buf).rstrip().rstrip(";").strip()
+        if stmt:
+            stmts.append(stmt)
+        buf = []
+if buf:
+    tail = "\n".join(buf).strip().rstrip(";").strip()
+    if tail:
+        stmts.append(tail)
+
+with open("${NETRC_FILE}") as f:
+    netrc = f.read()
+import re as _re
+m = _re.search(r"login\s+(\S+).*?password\s+(\S+)", netrc, _re.S)
+user, pw = m.group(1), m.group(2)
+
+auth = "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode()
+for i, stmt in enumerate(stmts):
+    req = urllib.request.Request("${CH_HOST}/", data=stmt.encode(),
+                                  headers={"Authorization": auth})
+    try:
+        urllib.request.urlopen(req).read()
+    except urllib.error.HTTPError as e:
+        sys.stderr.write(f"\n[ch_apply_file {os.path.basename('${file}')}] stmt {i+1} failed:\n{stmt[:200]}\n--\n{e.read().decode(errors='replace')[:500]}\n")
+        raise SystemExit(1)
+PY
 }
 
 ch_file_upload() {
@@ -74,13 +131,14 @@ ch_file_upload() {
   # $2 = local file
   # Encodes the file as base64 and INSERTs into a file() function with
   # base64Decode() — the canonical way to push binary blobs into CH.
+  # Schema must be `content String` (column-name + type); plain `String`
+  # is rejected as a columns-declaration syntax error.
   local path="$1" local_file="$2"
   local b64
   b64="$(base64 < "$local_file" | tr -d '\n')"
-  printf "INSERT INTO FUNCTION file(%s, 'RawBLOB', 'String') SELECT base64Decode(%s)" \
-    "$(printf "'%s'" "$path")" \
-    "$(printf "'%s'" "$b64")" \
-    | ch_query
+  printf "INSERT INTO FUNCTION file('%s', 'RawBLOB', 'content String') SETTINGS engine_file_truncate_on_insert = 1 SELECT base64Decode('%s')" \
+    "$path" "$b64" \
+    | ch_query > /dev/null
 }
 
 echo "==> bentoclick install"
@@ -92,7 +150,7 @@ echo "    SPA:   $SPA_ORIGIN"
 # ---- 1. Apply schema ----
 echo "==> applying schema/*.sql"
 for sql in schema/01-database.sql schema/02-roles.sql; do
-  sed -e "s|\${DB}|${DB}|g" -e "s|\${SPA_ORIGIN}|${SPA_ORIGIN}|g" "$sql" | ch_query
+  ch_apply_file "$sql"
 done
 
 # ---- 2. Push runtime assets ----
@@ -142,15 +200,25 @@ for spec in samples/*.spec.json; do
   params_json="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get('params', [])))" "$spec")"
   panels_json="$(python3 -c "import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get('panels', [])))" "$spec")"
   spec_version="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('spec_version', 1))" "$spec")"
-  # SELECT-form INSERT — CH 26.3 currentUser()-in-VALUES quirk avoidance.
-  # Quote dollar signs in params/panels JSON before splicing into SQL.
+  # SELECT-form INSERT (CH 26.3 currentUser()-in-VALUES quirk avoidance).
+  # SQL string literals interpret `\n`, `\t`, etc.; we must double every
+  # backslash before splicing JSON so the JSON parser sees the original
+  # `\n` escape sequence (two chars), not a real newline. Single quotes
+  # are doubled by SQL convention. Order matters: backslash first, then
+  # single quote, so the second pass doesn't escape the doubling.
+  esc() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\'/\'\'}"
+    printf '%s' "$s"
+  }
   printf "INSERT INTO ${DB}.dashboards_raw (slug, title, subtitle, spec_version, params, panels) SELECT '%s', '%s', '%s', %s, JSONExtract('%s', 'Array(JSON)'), JSONExtract('%s', 'Array(JSON)')" \
-    "$slug" \
-    "${title//\'/\'\'}" \
-    "${subtitle//\'/\'\'}" \
+    "$(esc "$slug")" \
+    "$(esc "$title")" \
+    "$(esc "$subtitle")" \
     "$spec_version" \
-    "${params_json//\'/\'\'}" \
-    "${panels_json//\'/\'\'}" \
+    "$(esc "$params_json")" \
+    "$(esc "$panels_json")" \
     | ch_query
   echo "    + $slug"
 done
