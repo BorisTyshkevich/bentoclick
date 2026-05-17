@@ -339,8 +339,15 @@ async function synthesizeSpecWrapper(spec) {
   var specJson = JSON.stringify(spec).replace(/<\/(?=script)/gi, '<\\/');
   var origin = location.origin;
   async function fetchRuntime(path) {
+    // No `cache: 'force-cache'` here — it bypasses freshness checks
+    // (per MDN: "returns cached match fresh OR stale"), which broke
+    // every /v/ load after a runtime deploy by serving the prior
+    // dash-runtime.js indefinitely. Default cache mode + the
+    // handler's `Cache-Control: public, max-age=300,
+    // stale-while-revalidate=3600` already gives us efficient repeat
+    // fetches with timely revalidation.
     var r = await withTimeout('/lib/v' + v + path,
-      { headers: { 'Accept': 'application/javascript' }, cache: 'force-cache' });
+      { headers: { 'Accept': 'application/javascript' } });
     if (!r.ok) throw new Error('runtime fetch failed: ' + path + ' HTTP ' + r.status);
     return r.text();
   }
