@@ -247,7 +247,18 @@ async function chQuery(sql) {
   u.searchParams.set('default_format', 'JSONCompact');
   var r = await withTimeout(u.toString(), { headers: { 'Authorization': 'Bearer ' + tok } });
   if (r.status === 401 || r.status === 403) throw new Error('Auth expired');
-  if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + (await r.text()).slice(0, 400));
+  if (!r.ok) {
+    var body = (await r.text()).slice(0, 400);
+    // CH surfaces JWT validation failures as HTTP 500 with
+    // jwt::error::token_verification_exception ("token expired",
+    // signature mismatch, issuer/audience drift). Route through the
+    // 'Auth expired' path so the SPA re-runs OAuth instead of showing
+    // the raw CH exception text.
+    if (/token_verification_exception|token expired/i.test(body)) {
+      throw new Error('Auth expired');
+    }
+    throw new Error('HTTP ' + r.status + ': ' + body);
+  }
   return await r.json();
 }
 
@@ -413,7 +424,14 @@ function handleIframeMessage(ev) {
   if (!frame || ev.source !== frame.contentWindow) return;
   if (ev.origin !== 'null') return;
   var m = ev.data;
-  if (!m || typeof m !== 'object' || m.type !== 'ch-query') return;
+  if (!m || typeof m !== 'object') return;
+  if (m.type === 'logout') {
+    // confirm() in the sandboxed iframe is blocked (no allow-modals);
+    // ask in the parent, where the prompt actually appears.
+    if (confirm('Log out and return to the login screen?')) clearTokenAndRestart();
+    return;
+  }
+  if (m.type !== 'ch-query') return;
   var id = m.id, sql = m.sql;
   if (typeof id !== 'number' || typeof sql !== 'string') return;
   chQuery(sql).then(function(j){
@@ -445,102 +463,154 @@ function handleIframeMessage(ev) {
 
 window.addEventListener('message', handleIframeMessage);
 
-// ---- built-in index dashboard ----
-// Rendered when the user hits /app with no query args. Lists the
-// authenticated user's own dashboards (owner = currentUser()) with a link
-// to open each one in a new tab.
-var INDEX_HTML = [
-'<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">',
-'<title>My dashboards</title>',
-'<link rel="stylesheet" href="/lib/v1/dash-theme.css">',
-'<style>',
-'.toolbar{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}',
-'.toolbar input{width:300px}',
-'table.dash-list td.title a{color:var(--accent);text-decoration:none;font-weight:600}',
-'table.dash-list td.title a:hover{text-decoration:underline}',
-'/* spec-backed dashboards get a dashed underline (a quiet hint at',
-'   the storage shape — html-only rows render with the default style). */',
-'table.dash-list td.title a.spec{border-bottom:1px dashed var(--accent);padding-bottom:1px}',
-'table.dash-list td.title a.spec:hover{text-decoration:none;border-bottom-style:solid}',
-'table.dash-list td.slug{font-family:ui-monospace,Menlo,monospace;color:var(--fg-dim);font-size:12px}',
-'.empty{padding:40px 0;text-align:center;color:var(--fg-dim)}',
-'.empty code{background:var(--bg-2);padding:1px 6px;border-radius:3px;color:var(--fg)}',
-'.tag{display:inline-block;background:var(--bg-2);color:var(--fg-dim);padding:1px 7px;border-radius:8px;font-size:11px;margin-right:4px}',
-'.muted{color:var(--fg-dim);font-size:12px}',
-'</style></head><body>',
-'<h1>My dashboards</h1>',
-'<div class="toolbar">',
-'<input id="filter" type="search" placeholder="Filter by title or slug…">',
-'<span id="status" class="muted">Loading…</span>',
-'<span id="who" class="muted"></span>',
-'</div>',
-'<table class="dash-list">',
-'<thead><tr><th>Title</th><th>Slug</th><th class="right">Size</th><th>Updated</th><th>Tags</th></tr></thead>',
-'<tbody id="rows"></tbody></table>',
-'<details style="margin-top:16px;"><summary class="muted">Query log</summary>',
-'<table><thead><tr><th>Query</th><th>Status</th><th>Rows</th></tr></thead><tbody id="ledger"></tbody></table>',
-'</details>',
-'<script type="module">',
-'import { fmt, run, createLedger, makeDashFetch } from "/lib/v1/dash.js";',
-'(function(){',
-'  const ledger = createLedger();',
-'  const dashFetch = makeDashFetch({}, (sql) => window.CH_FETCH(sql), ledger);',
-'  ledger.mount(document.getElementById("ledger"));',
-'  var filterInput=document.getElementById("filter");',
-'  var statusEl=document.getElementById("status");',
-'  var whoEl=document.getElementById("who");',
-'  var rowsEl=document.getElementById("rows");',
-'  var allRows=[];',
-'  function fmtBytes(b){var n=Number(b)||0;if(n<1024)return n+" B";if(n<1048576)return (n/1024).toFixed(1)+" KB";return (n/1048576).toFixed(1)+" MB"}',
-'  function escAttr(s){return fmt.esc(s).replace(/"/g,"&quot;")}',
-'  function render(rows){',
-'    if(!rows.length){rowsEl.innerHTML="<tr><td colspan=\\"5\\" class=\\"empty\\">No dashboards yet. INSERT into <code>dashboards.dashboards</code> as the OAuth user to create one.</td></tr>";return}',
-'    rowsEl.innerHTML=rows.map(function(r){',
-'      // Always link to the full owner form. The SPA only expands localparts',
-'      // against the configured email_domain, so users on other domains',
-'      // (e.g. @gmail.com when the config is @altinity.com) would 404 if we',
-'      // shortened.',
-'      var href="/v/"+encodeURIComponent(r.owner||"")+"/"+encodeURIComponent(r.slug);',
-'      var tagsHtml=(r.tags||[]).map(function(t){return "<span class=\\"tag\\">"+fmt.esc(t)+"</span>"}).join("");',
-'      var updated=String(r.updated_at||"").slice(0,16).replace("T"," ");',
-'      return "<tr>"+',
-'        "<td class=\\"title\\"><a href=\\""+escAttr(href)+"\\" target=\\"_blank\\" rel=\\"noopener\\">"+fmt.esc(r.title||r.slug)+"</a></td>"+',
-'        "<td class=\\"slug\\">"+fmt.esc(r.slug)+"</td>"+',
-'        "<td class=\\"right\\">"+fmtBytes(r.content_size)+"</td>"+',
-'        "<td>"+fmt.esc(updated)+"</td>"+',
-'        "<td>"+tagsHtml+"</td>"+',
-'      "</tr>"',
-'    }).join("");',
-'  }',
-'  function applyFilter(){',
-'    var q=filterInput.value.trim().toLowerCase();',
-'    if(!q)return render(allRows);',
-'    render(allRows.filter(function(r){',
-'      return String(r.title||"").toLowerCase().indexOf(q)>=0||String(r.slug||"").toLowerCase().indexOf(q)>=0',
-'    }));',
-'  }',
-'  async function load(){',
-'    var tok=run.next();',
-'    statusEl.textContent="Loading…";',
-'    try{',
-'      var who=await dashFetch("who","whoami","SELECT email FROM dashboards.whoami");',
-'      if(!run.is(tok))return;',
-'      whoEl.textContent="(as "+(who.rows[0]?who.rows[0].email:"?")+")";',
-'      var r=await dashFetch("mine","My dashboards","SELECT slug, title, owner, length(toJSONString(panels)) AS content_size, updated_at, tags FROM dashboards.dashboards FINAL WHERE owner = currentUser() ORDER BY updated_at DESC LIMIT 200");',
-'      if(!run.is(tok))return;',
-'      allRows=r.rows||[];',
-'      render(allRows);',
-'      statusEl.textContent=allRows.length+" dashboard"+(allRows.length===1?"":"s");',
-'    }catch(e){',
-'      if(e.message==="Auth expired")return;',
-'      statusEl.textContent="Error: "+String(e.message||e).slice(0,200);',
-'    }',
-'  }',
-'  filterInput.addEventListener("input",applyFilter);',
-'  load();',
-'})();',
-'<\/script></body></html>'
-].join('\n');
+// ---- built-in /app index (signed-in dashboards listing) ----
+// Renders at top-level (no iframe) — the listing has no user-supplied
+// content so the bearer-exfil sandbox /v/ relies on isn't needed here.
+// /sql is the design reference for header + login card; the OAuth flow
+// itself is unchanged (CIMD + PKCE via discoverAS/startAuth).
+
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
+  });
+}
+function escAttr(s) { return escHtml(s).replace(/"/g, '&quot;'); }
+function fmtBytes(b) {
+  var n = Number(b) || 0;
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+  return (n/1048576).toFixed(1) + ' MB';
+}
+
+function hideShellChrome() {
+  var st = document.getElementById('status'); if (st) st.classList.add('hide');
+  var fr = document.getElementById('frame');  if (fr) fr.classList.add('hide');
+}
+
+function renderLoginCard(returnTo) {
+  hideShellChrome();
+  var prev = document.getElementById('app-root'); if (prev) prev.remove();
+  var root = document.createElement('div');
+  root.id = 'app-root';
+  root.className = 'login-screen';
+  root.innerHTML =
+    '<div class="login-card">' +
+      '<span class="login-logo">A</span>' +
+      '<h2>Altinity Dashboards</h2>' +
+      '<p class="muted" id="login-msg">Sign in to continue</p>' +
+      '<button id="signin" class="btn-primary" type="button">Sign in</button>' +
+      '<p class="muted" style="margin-top:14px;font-size:11px">OAuth · ' + escHtml(location.host) + '</p>' +
+    '</div>';
+  document.body.appendChild(root);
+  document.getElementById('signin').addEventListener('click', async function() {
+    var btn = document.getElementById('signin');
+    btn.textContent = 'Redirecting…';
+    btn.disabled = true;
+    try { await startAuth(returnTo); }
+    catch (e) {
+      btn.textContent = 'Sign in';
+      btn.disabled = false;
+      var m = document.getElementById('login-msg');
+      if (m) { m.textContent = 'Error: ' + (e.message || e); m.style.color = '#ff6b6b'; }
+    }
+  });
+}
+
+// Parse JSONCompact { meta:[{name,type}], data:[[...]] } into row-of-objects.
+function jsonCompactRows(j) {
+  var meta = j.meta || [];
+  var data = j.data || [];
+  return data.map(function(row) {
+    var o = {};
+    meta.forEach(function(c, i) { o[c.name] = row[i]; });
+    return o;
+  });
+}
+
+async function renderIndex() {
+  // Run whoami + listing through chQuery (top-level fetch — no iframe RPC).
+  var whoamiResp = await chQuery('SELECT email FROM dashboards.whoami');
+  var whoami = jsonCompactRows(whoamiResp)[0] || { email: '?' };
+
+  var listResp = await chQuery(
+    'SELECT slug, title, owner,' +
+    ' length(toJSONString(panels)) AS content_size,' +
+    ' updated_at,' +
+    ' toJSONString(tags) AS tags_json' +
+    ' FROM ' + DB + '.dashboards FINAL' +
+    ' WHERE owner = currentUser()' +
+    ' ORDER BY updated_at DESC LIMIT 200'
+  );
+  var rows = jsonCompactRows(listResp).map(function(r) {
+    try { r.tags = JSON.parse(r.tags_json || '[]'); } catch (_) { r.tags = []; }
+    return r;
+  });
+
+  hideShellChrome();
+  var prev = document.getElementById('app-root'); if (prev) prev.remove();
+  var root = document.createElement('div');
+  root.id = 'app-root';
+  root.innerHTML =
+    '<header class="app-header">' +
+      '<span class="logo-mark">A</span>' +
+      '<span class="logo-name">Altinity Dashboards</span>' +
+      '<span class="env-chip">' + escHtml(location.host) + '</span>' +
+      '<span class="spacer"></span>' +
+      '<span class="user-email" title="' + escAttr(whoami.email) + '">' + escHtml(whoami.email) + '</span>' +
+      '<button class="hd-btn" id="logout" type="button">Sign out</button>' +
+    '</header>' +
+    '<main class="app-main">' +
+      '<h1>My dashboards</h1>' +
+      '<div class="toolbar">' +
+        '<input id="filter" type="search" placeholder="Filter by title or slug…">' +
+        '<span id="dash-status" class="muted"></span>' +
+      '</div>' +
+      '<table class="dash-list">' +
+        '<thead><tr><th>Title</th><th>Slug</th><th class="right">Size</th><th>Updated</th><th>Tags</th></tr></thead>' +
+        '<tbody id="rows"></tbody></table>' +
+    '</main>';
+  document.body.appendChild(root);
+
+  var rowsEl    = document.getElementById('rows');
+  var statusEl  = document.getElementById('dash-status');
+  var filterEl  = document.getElementById('filter');
+
+  function renderRows(rs) {
+    if (!rs.length) {
+      rowsEl.innerHTML = '<tr><td colspan="5" class="empty">No dashboards yet. Save one via your MCP connector to see it here.</td></tr>';
+      return;
+    }
+    rowsEl.innerHTML = rs.map(function(r) {
+      var href = '/v/' + encodeURIComponent(r.owner || '') + '/' + encodeURIComponent(r.slug || '');
+      var tags = (r.tags || []).map(function(t){ return '<span class="tag">' + escHtml(t) + '</span>'; }).join('');
+      var updated = String(r.updated_at || '').slice(0, 16).replace('T', ' ');
+      return '<tr>' +
+        '<td class="title"><a href="' + escAttr(href) + '" target="_blank" rel="noopener">' + escHtml(r.title || r.slug) + '</a></td>' +
+        '<td class="slug">' + escHtml(r.slug) + '</td>' +
+        '<td class="right">' + fmtBytes(r.content_size) + '</td>' +
+        '<td>' + escHtml(updated) + '</td>' +
+        '<td>' + tags + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function applyFilter() {
+    var q = filterEl.value.trim().toLowerCase();
+    if (!q) return renderRows(rows);
+    renderRows(rows.filter(function(r) {
+      return String(r.title || '').toLowerCase().indexOf(q) >= 0
+          || String(r.slug  || '').toLowerCase().indexOf(q) >= 0;
+    }));
+  }
+
+  filterEl.addEventListener('input', applyFilter);
+  document.getElementById('logout').addEventListener('click', function() {
+    if (confirm('Sign out and return to the login screen?')) clearTokenAndRestart();
+  });
+
+  statusEl.textContent = rows.length + ' dashboard' + (rows.length === 1 ? '' : 's');
+  renderRows(rows);
+}
 
 // ---- main ----
 (async function main(){
@@ -565,6 +635,13 @@ var INDEX_HTML = [
     return;
   }
   if (!lsGet(TOK_KEY)) {
+    // For the index, show a login card and let the user click to OAuth.
+    // For deep links to /v/ or /p/, jump straight into OAuth so the
+    // bookmark/share-link flow stays one redirect.
+    if (route.kind === 'index') {
+      renderLoginCard(location.pathname + location.search);
+      return;
+    }
     setStatus('Redirecting to login…');
     try { await startAuth(location.pathname + location.search); }
     catch (e) { setStatus('Login error: ' + e.message, true); }
@@ -576,10 +653,13 @@ var INDEX_HTML = [
               :                              'index';
     document.title = label + (CFG.brand_name ? ' — ' + CFG.brand_name : '');
     setStatus('Loading ' + label + '…');
-    var html = route.kind === 'dashboard' ? await fetchDashboard(route.owner, route.slug)
-             : route.kind === 'page'      ? await fetchPage(route.name)
-             :                              INDEX_HTML;
-    renderIntoFrame(html);
+    if (route.kind === 'index') {
+      await renderIndex();
+    } else {
+      var html = route.kind === 'dashboard' ? await fetchDashboard(route.owner, route.slug)
+               :                              await fetchPage(route.name);
+      renderIntoFrame(html);
+    }
   } catch (e) {
     if (e.message === 'Auth expired') { clearTokenAndRestart(); return; }
     setStatus(e.message || 'Failed to load', true);
