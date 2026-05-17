@@ -80,6 +80,28 @@ describe('on_click cross-panel filtering', () => {
     el.querySelectorAll('rect.chart-bar')[0].dispatchEvent(new Event('click', { bubbles: true }));
     expect(stub.calls).toEqual([['year', 1990]]);
   });
+
+  it('line dot click sets the param from the matching row', () => {
+    // The line renderer wires on_click on each `circle.chart-point`
+    // (one per data point per series). Coverage gap pinned: this is
+    // the only on_click branch on the line panel.
+    const stub = makeSpecStub();
+    const state = { id: 'l', rows: [], update: () => {} };
+    const el = PANELS.line({
+      type: 'line',
+      x_key: 'year',
+      series: [{ key: 'flights' }],
+      on_click: { set_param: 'year', from: 'year' },
+    }, state, ctx(stub));
+    state.update([
+      { year: 1990, flights: 10 },
+      { year: 2000, flights: 20 },
+    ]);
+    const dots = el.querySelectorAll('circle.chart-point');
+    expect(dots.length).toBe(2);
+    dots[1].dispatchEvent(new Event('click', { bubbles: true }));
+    expect(stub.calls).toEqual([['year', 2000]]);
+  });
 });
 
 describe('SpecRuntime.setParam', () => {

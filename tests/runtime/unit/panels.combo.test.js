@@ -81,6 +81,30 @@ describe('renderCombo', () => {
     expect(legend.textContent).toContain('Margin');
   });
 
+  it('falls back to the palette default when bars.color_by is absent', () => {
+    const state = makeState();
+    const noColor = { ...basic, bars: { key: 'flights', label: 'Flights' } };
+    const el = PANELS.combo(noColor, state, ctx());
+    state.update([
+      { year: 2000, flights: 1, margin: 1, who: 'WN' },
+      { year: 2001, flights: 1, margin: 1, who: 'DL' },
+    ]);
+    const fills = Array.from(el.querySelectorAll('rect.chart-bar')).map((r) => r.getAttribute('fill'));
+    expect(new Set(fills).size).toBe(1); // all the same colour, not per-row
+  });
+
+  it('survives null series values without emitting NaN in the line path', () => {
+    const state = makeState();
+    const el = PANELS.combo(basic, state, ctx());
+    state.update([
+      { year: 2000, flights: 10,   margin: null, who: 'WN' },
+      { year: 2001, flights: null, margin: 5,    who: 'DL' },
+      { year: 2002, flights: 30,   margin: 8,    who: 'WN' },
+    ]);
+    const d = el.querySelector('path.chart-line').getAttribute('d');
+    expect(d).not.toMatch(/NaN/);
+  });
+
   it('overlays annotations from a sibling panel', () => {
     const stub = makeSpecStub({
       flips: { rows: [{ year: 2001, who: 'WN→DL' }] },

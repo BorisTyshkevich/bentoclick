@@ -119,6 +119,21 @@ describe('renderLine', () => {
     expect(el.querySelectorAll('.chart-annotation').length).toBe(1);
   });
 
+  it('survives null series values without emitting NaN in the path', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', x_key: 'year', series: [{ key: 'v' }],
+    }, state, ctx());
+    state.update([
+      { year: 2000, v: null },
+      { year: 2001, v: 5 },
+      { year: 2002, v: null },
+      { year: 2003, v: 10 },
+    ]);
+    const d = el.querySelector('path.chart-line').getAttribute('d');
+    expect(d).not.toMatch(/NaN/);
+  });
+
   it('decimates x ticks when there are many points', () => {
     const state = makeState();
     const el = PANELS.line({

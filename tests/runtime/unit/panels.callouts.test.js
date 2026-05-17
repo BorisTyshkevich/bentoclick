@@ -108,4 +108,22 @@ describe('renderCallouts', () => {
     state.update([]);
     expect(el.querySelector('.callouts')).not.toBeNull();
   });
+
+  it('escapes raw row values reaching the template (XSS regression)', () => {
+    // Each placeholder value runs through applyFormat -> fmt.raw -> fmt.esc
+    // before being parked behind a NUL sentinel, so HTML in the row value
+    // must render as literal text, never as DOM.
+    const stub = makeSpecStub({
+      handoffs: { rows: [{
+        year: '<img src=x onerror=alert(1)>',
+        old: 'DL', new: 'US', margin: 0,
+      }] },
+    });
+    const state = makeState();
+    const el = PANELS.callouts(base, state, ctx(stub));
+    state.update([]);
+    expect(el.querySelectorAll('img').length).toBe(0);
+    expect(el.querySelectorAll('script').length).toBe(0);
+    expect(el.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
 });

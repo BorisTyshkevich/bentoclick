@@ -457,13 +457,12 @@ function renderTable(panel, state, ctx) {
         return '<td' + (c.align === 'right' ? ' class="right"' : '') + '>' + cell + '</td>';
       }).join('') + '</tr>';
     }).join('');
-    if (panel.on_click && ctx && ctx.spec && ctx.spec.setParam) {
-      tbody.querySelectorAll('tr[data-row-index]').forEach((tr) => {
-        const idx = Number(tr.getAttribute('data-row-index'));
-        const row = rows[idx];
-        if (row) wireOnClick(tr, panel, row, ctx);
-      });
-    }
+    // wireOnClick early-returns when on_click / spec / spec.setParam
+    // are absent, so the iteration is cheap to run unconditionally.
+    tbody.querySelectorAll('tr[data-row-index]').forEach((tr) => {
+      const row = rows[Number(tr.getAttribute('data-row-index'))];
+      if (row) wireOnClick(tr, panel, row, ctx);
+    });
   };
   state.tbodyEl = tbody;
   return card;
@@ -586,9 +585,56 @@ function seriesValueAt(panel, rows, byX, seriesObj, x) {
   return NaN;
 }
 
-function chartEmpty(card, body, panel) {
+function chartEmpty(body, panel) {
   body.innerHTML = '<div style="color:var(--fg-dim);padding:8px 0">'
     + fmt.esc(panel.empty_text || 'no data') + '</div>';
+}
+
+// Downsample x-axis tick labels to ~8 when the band count exceeds 12,
+// keeping every Nth label. Used by line/combo/chart so years-or-months
+// don't overlap visually.
+function pickXTicks(xs) {
+  return xs.length > 12
+    ? xs.filter((_, i) => i % Math.ceil(xs.length / 8) === 0)
+    : xs;
+}
+
+// `min(0, ...) → max(0, ...) → niceTicks → linearScale([ih,0])` is the
+// stock y-axis recipe for line/combo/chart. The min(0,...) anchor keeps
+// zero on the axis whenever values straddle zero or are all positive.
+function yScaleFromValues(values, ih) {
+  const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values), 5);
+  return { ticks, scale: linearScale([ticks[0], ticks[ticks.length - 1]], [ih, 0]) };
+}
+
+// Render a `{{key|fmt!}}` template against one row. Used by hero (one
+// row) and callouts (N rows). Each placeholder is replaced by its
+// (already-formatted, already-escaped) value via a NUL sentinel so the
+// outer mdInline pass can operate on the template text without
+// touching the value content.
+function renderTemplate(template, row, ctx) {
+  const rendered = [];
+  const re = /\{\{\s*(\w+)(?:\s*\|\s*(\w+))?\s*(!)?\s*\}\}/g;
+  const withSentinels = String(template || '').replace(re, (_m, key, format, hl) => {
+    const raw = row[key];
+    const v = applyFormat(ctx.api, format || 'raw', raw == null ? '—' : raw);
+    rendered.push(hl ? '<span class="hl">' + v + '</span>' : v);
+    return '\x00' + (rendered.length - 1) + '\x00';
+  });
+  return mdInline(fmt.esc(withSentinels))
+    .replace(/\x00(\d+)\x00/g, (_m, i) => rendered[+i]);
+}
+
+// Re-run `refresh` when the anchor panel emits `panel:loaded`. Used by
+// hero and callouts to keep their narrative in sync with the upstream
+// query. Idempotent — one subscription per state instance.
+function subscribeAnchor(state, panel, ctx, refresh) {
+  if (state._anchorSub) return;
+  if (!ctx || !ctx.spec || !ctx.spec.on) return;
+  state._anchorSub = true;
+  ctx.spec.on('panel:loaded', (ev) => {
+    if (ev && ev.id === panel.anchor) refresh();
+  });
 }
 
 function getAnnotationRows(panel, ctx) {
@@ -649,27 +695,19 @@ function renderLine(panel, state, ctx) {
 
   function draw(rows) {
     body.innerHTML = '';
-    if (!rows || !rows.length) return chartEmpty(card, body, panel);
+    if (!rows || !rows.length) return chartEmpty(body, panel);
     const { series, xs, byX } = resolveSeries(panel, rows);
     const root = svgRoot({ width: 480, height: 220 });
     const xScale = bandScale(xs, [0, root.iw], 0);
-    let yMin = Infinity, yMax = -Infinity;
-    series.forEach((s) => {
-      xs.forEach((x) => {
-        const v = seriesValueAt(panel, rows, byX, s, x);
-        if (isFinite(v)) {
-          if (v < yMin) yMin = v;
-          if (v > yMax) yMax = v;
-        }
-      });
-    });
-    if (!isFinite(yMin)) { yMin = 0; yMax = 1; }
-    if (yMin > 0) yMin = 0;
-    const ticks = niceTicks(yMin, yMax, 5);
-    const yScale = linearScale([ticks[0], ticks[ticks.length - 1]], [root.ih, 0]);
+    const allYs = [];
+    series.forEach((s) => xs.forEach((x) => {
+      const v = seriesValueAt(panel, rows, byX, s, x);
+      if (isFinite(v)) allYs.push(v);
+    }));
+    if (!allYs.length) allYs.push(0, 1);
+    const { ticks, scale: yScale } = yScaleFromValues(allYs, root.ih);
     root.plot.appendChild(axisY({ ticks, scale: yScale, iw: root.iw, ih: root.ih, format: yFmt }));
-    const xTicks = xs.length > 12 ? xs.filter((_, i) => i % Math.ceil(xs.length / 8) === 0) : xs;
-    root.plot.appendChild(axisBottom({ ticks: xTicks, scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
+    root.plot.appendChild(axisBottom({ ticks: pickXTicks(xs), scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
     const colorOf = (s, i) => s.color || chartPalette[i % chartPalette.length];
     series.forEach((s, i) => {
       const pts = xs.map((x) => [xScale(x), yScale(seriesValueAt(panel, rows, byX, s, x))]);
@@ -717,24 +755,21 @@ function renderCombo(panel, state, ctx) {
 
   function draw(rows) {
     body.innerHTML = '';
-    if (!rows || !rows.length) return chartEmpty(card, body, panel);
+    if (!rows || !rows.length) return chartEmpty(body, panel);
     const xs = rows.map((r) => r[panel.x_key]);
     const root = svgRoot({ width: 480, height: 240, padding: { top: 10, right: 56, bottom: 28, left: 52 } });
     const xScale = bandScale(xs, [0, root.iw], 0.15);
 
     const barVals = rows.map((r) => Number(r[barsCfg.key]) || 0);
     const lineVals = rows.map((r) => Number(r[lineCfg.key]) || 0);
-    const lTicks = niceTicks(Math.min(0, ...barVals), Math.max(0, ...barVals), 5);
-    const rTicks = niceTicks(Math.min(0, ...lineVals), Math.max(0, ...lineVals), 5);
-    const lScale = linearScale([lTicks[0], lTicks[lTicks.length - 1]], [root.ih, 0]);
-    const rScale = linearScale([rTicks[0], rTicks[rTicks.length - 1]], [root.ih, 0]);
+    const { ticks: lTicks, scale: lScale } = yScaleFromValues(barVals,  root.ih);
+    const { ticks: rTicks, scale: rScale } = yScaleFromValues(lineVals, root.ih);
 
     root.plot.appendChild(axisY({ ticks: lTicks, scale: lScale, iw: root.iw, ih: root.ih, format: lFmt }));
     if (lineCfg.axis === 'right') {
       root.plot.appendChild(axisY({ ticks: rTicks, scale: rScale, iw: root.iw, ih: root.ih, format: rFmt, orient: 'right', grid: false }));
     }
-    const xTicks = xs.length > 12 ? xs.filter((_, i) => i % Math.ceil(xs.length / 8) === 0) : xs;
-    root.plot.appendChild(axisBottom({ ticks: xTicks, scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
+    root.plot.appendChild(axisBottom({ ticks: pickXTicks(xs), scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
 
     const bw = xScale.bandwidth;
     const zeroY = lScale(0);
@@ -773,26 +808,13 @@ function renderCombo(panel, state, ctx) {
     drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
     body.appendChild(root.svg);
 
-    // Legend if labels are provided.
-    if (barsCfg.label || lineCfg.label) {
-      const legend = document.createElement('div');
-      legend.className = 'chart-legend';
-      if (barsCfg.label) {
-        const it = document.createElement('span');
-        const sw = document.createElement('span'); sw.className = 'sw';
-        sw.style.background = barsCfg.color_by ? '#888' : chartPalette[0];
-        it.appendChild(sw); it.appendChild(document.createTextNode(barsCfg.label));
-        legend.appendChild(it);
-      }
-      if (lineCfg.label) {
-        const it = document.createElement('span');
-        const sw = document.createElement('span'); sw.className = 'sw';
-        sw.style.background = lineColor;
-        it.appendChild(sw); it.appendChild(document.createTextNode(lineCfg.label));
-        legend.appendChild(it);
-      }
-      body.appendChild(legend);
-    }
+    // Legend if labels are provided. buildLegend reads `.label` + the
+    // colorOf callback; mixed-color marker for `color_by` bars
+    // collapses to a neutral grey since one swatch can't carry the map.
+    const legendSeries = [];
+    if (barsCfg.label) legendSeries.push({ label: barsCfg.label, _color: barsCfg.color_by ? '#888' : chartPalette[0] });
+    if (lineCfg.label) legendSeries.push({ label: lineCfg.label, _color: lineColor });
+    if (legendSeries.length) body.appendChild(buildLegend(legendSeries, (s) => s._color));
   }
 
   state.update = function (rows) {
@@ -815,7 +837,7 @@ function renderChart(panel, state, ctx) {
 
   function draw(rows) {
     body.innerHTML = '';
-    if (!rows || !rows.length) return chartEmpty(card, body, panel);
+    if (!rows || !rows.length) return chartEmpty(body, panel);
     const labels = rows.map((r) => r[xKey]);
     const values = rows.map((r) => Number(r[valueKey]) || 0);
     const colorOf = (r) => panel.color_by
@@ -858,11 +880,9 @@ function renderChart(panel, state, ctx) {
     // Vertical bars.
     const root = svgRoot({ width: 480, height: 220 });
     const xScale = bandScale(labels, [0, root.iw], 0.2);
-    const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values), 5);
-    const yScale = linearScale([ticks[0], ticks[ticks.length - 1]], [root.ih, 0]);
+    const { ticks, scale: yScale } = yScaleFromValues(values, root.ih);
     root.plot.appendChild(axisY({ ticks, scale: yScale, iw: root.iw, ih: root.ih, format: yFmt }));
-    const xTicks = labels.length > 12 ? labels.filter((_, i) => i % Math.ceil(labels.length / 8) === 0) : labels;
-    root.plot.appendChild(axisBottom({ ticks: xTicks, scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
+    root.plot.appendChild(axisBottom({ ticks: pickXTicks(labels), scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
     const bw = xScale.bandwidth;
     const zeroY = yScale(0);
     rows.forEach((r, i) => {
@@ -910,49 +930,27 @@ function renderCallouts(panel, state, ctx) {
     return rows.slice();
   }
 
-  function renderRow(row) {
-    const rendered = [];
-    const re = /\{\{\s*(\w+)(?:\s*\|\s*(\w+))?\s*(!)?\s*\}\}/g;
-    const withSentinels = String(panel.template || '').replace(re,
-      (_m, key, format, hl) => {
-        const raw = row[key];
-        const v = applyFormat(ctx.api, format || 'raw', raw == null ? '—' : raw);
-        rendered.push(hl ? '<span class="hl">' + v + '</span>' : v);
-        return '\x00' + (rendered.length - 1) + '\x00';
-      });
-    let html = mdInline(fmt.esc(withSentinels));
-    html = html.replace(/\x00(\d+)\x00/g, (_m, i) => rendered[+i]);
-    const div = document.createElement('div');
-    div.className = 'callout';
-    div.innerHTML = html;
-    return div;
-  }
-
   function tryRefresh() {
     const spec = ctx.spec;
-    if (!spec || !spec.panels) {
-      list.innerHTML = '';
-      return;
-    }
+    if (!spec || !spec.panels) { list.innerHTML = ''; return; }
     const anchor = spec.panels[panel.anchor];
     if (!anchor || !Array.isArray(anchor.rows) || !anchor.rows.length) {
       list.innerHTML = '<div style="color:var(--fg-dim);font-size:12px">(waiting for '
         + fmt.esc(panel.anchor || '?') + ')</div>';
       return;
     }
-    const picked = selectRows(anchor.rows);
     list.innerHTML = '';
-    picked.forEach((r) => list.appendChild(renderRow(r)));
+    selectRows(anchor.rows).forEach((r) => {
+      const div = document.createElement('div');
+      div.className = 'callout';
+      div.innerHTML = renderTemplate(panel.template, r, ctx);
+      list.appendChild(div);
+    });
   }
 
   state.update = function () {
     tryRefresh();
-    if (!state._subscribed && ctx.spec && ctx.spec.on) {
-      state._subscribed = true;
-      ctx.spec.on('panel:loaded', (ev) => {
-        if (ev.id === panel.anchor) tryRefresh();
-      });
-    }
+    subscribeAnchor(state, panel, ctx, tryRefresh);
   };
   return card;
 }
@@ -986,28 +984,6 @@ function renderHero(panel, state, ctx) {
   const p = document.createElement('p');
   card.appendChild(p);
 
-  function renderPlaceholder(row, key, format, highlight) {
-    const raw = row[key];
-    const v = applyFormat(ctx.api, format || 'raw', raw == null ? '—' : raw);
-    if (highlight) return '<span class="hl">' + v + '</span>';
-    return v;
-  }
-
-  function inlineMd(s) { return mdInline(fmt.esc(s)); }
-
-  function render(row) {
-    const rendered = [];
-    const re = /\{\{\s*(\w+)(?:\s*\|\s*(\w+))?\s*(!)?\s*\}\}/g;
-    const withSentinels = String(panel.template || '').replace(re,
-      (_m, key, format, hl) => {
-        rendered.push(renderPlaceholder(row, key, format, !!hl));
-        return '\x00' + (rendered.length - 1) + '\x00';
-      });
-    let html = inlineMd(withSentinels);
-    html = html.replace(/\x00(\d+)\x00/g, (_m, i) => rendered[+i]);
-    p.innerHTML = html;
-  }
-
   function tryRefresh() {
     const spec = ctx.spec;
     if (!spec || !spec.panels) return;
@@ -1017,17 +993,12 @@ function renderHero(panel, state, ctx) {
         + fmt.esc(panel.anchor || '?') + ')</span>';
       return;
     }
-    render(anchor.rows[0]);
+    p.innerHTML = renderTemplate(panel.template, anchor.rows[0], ctx);
   }
 
   state.update = function () {
     tryRefresh();
-    if (!state._subscribed && ctx.spec && ctx.spec.on) {
-      state._subscribed = true;
-      ctx.spec.on('panel:loaded', (ev) => {
-        if (ev.id === panel.anchor) tryRefresh();
-      });
-    }
+    subscribeAnchor(state, panel, ctx, tryRefresh);
   };
   return card;
 }
