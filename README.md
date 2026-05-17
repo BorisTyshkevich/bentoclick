@@ -58,7 +58,7 @@ bentoclick/
 ├── runtime/v1/      # SPA shell + dash.js renderer for spec_version=1
 ├── config/          # config.json / client.json templates
 ├── samples/         # sample spec JSON files
-├── skills/          # altinity-dash-builder Claude skill
+├── skills/          # bentoclick-dashboard Claude skill
 ├── docs/            # SPEC_VERSIONING, SANITIZATION, TESTING, AUTHORING
 └── tests/           # pytest (schema) + vitest (runtime) + e2e
 ```
@@ -68,8 +68,8 @@ bentoclick/
 Install the skill:
 
 ```bash
-ln -s "$(pwd)/skills/altinity-dash-builder" \
-      ~/.claude/skills/altinity-dash-builder
+ln -s "$(pwd)/skills/bentoclick-dashboard" \
+      ~/.claude/skills/bentoclick-dashboard
 ```
 
 Then ask Claude Code to build a dashboard. The skill teaches the seven
