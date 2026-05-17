@@ -214,6 +214,27 @@ tr.selected-row {
 .bar-bg { flex: 1; height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
 .bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
 
+/* SVG charts (line/combo/chart panels) — drawn by runtime/v1/charts.js. */
+.chart-svg { display: block; overflow: visible; font: 10px ui-sans-serif, system-ui, sans-serif; }
+.chart-axis-line { stroke: var(--rule); stroke-width: 1; }
+.chart-tick { stroke: var(--rule); stroke-width: 1; }
+.chart-tick-label { fill: var(--fg-dim); font-size: 10px; }
+.chart-grid { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.5; }
+.chart-line { fill: none; stroke-width: 2; }
+.chart-bar { cursor: default; }
+.chart-bar.chart-clickable { cursor: pointer; }
+.chart-bar.chart-clickable:hover { opacity: 0.85; }
+.chart-point { stroke: var(--bg); stroke-width: 1.5; }
+.chart-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--fg-dim); margin: 6px 0 0; }
+.chart-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.chart-annotation-line { stroke: var(--fg-dim); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
+.chart-annotation-label { fill: var(--fg-dim); font-size: 10px; }
+
+/* Callouts — narrative pinned to N rows of an anchor panel. */
+.callouts { display: flex; flex-direction: column; gap: 8px; }
+.callout { padding: 8px 12px; border-left: 3px solid var(--accent); background: rgba(255,255,255,0.02); border-radius: 0 6px 6px 0; font-size: 13px; line-height: 1.5; }
+.callout .hl { color: var(--accent); font-weight: 600; }
+
 /* Badges */
 .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 .badge-opus   { background: #2a1f4e; color: #a78bfa; }

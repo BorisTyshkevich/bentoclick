@@ -78,6 +78,29 @@ inline in the panel — never sent to CH.
 ]
 ```
 
+## Picking the dashboard shape
+
+Decide the **shape** before picking panels. The shape determines
+whether the period belongs in a param at the top of the page or
+inside a chart axis.
+
+- **Snapshot** — one period, many slices. Use a `param` for the
+  period; panels slice that period (kpi-strip + tables + bars). The
+  worked example below is this shape.
+- **Time-series** — many periods, one or two metrics. Do **not** put
+  a period param at the top; the time axis lives inside a `line` or
+  `combo` panel. Params should constrain non-time dimensions
+  (carrier, airport, region). Cross-period questions ("which year
+  did X overtake Y") render on one screen.
+- **Event log** — a small list of notable moments. Drive the page
+  from one `table` panel; use `callouts` to narrate the rows; use
+  `annotations` to mark the events on any time-series panel beside
+  the table.
+
+If the user's question spans periods, the answer is almost never
+"add a year picker." Reach for `line`, `combo`, or `chart` with an
+`annotations` source instead.
+
 ## Panels
 
 Auto-flow layout: `width: 12` (default) is full-row; consecutive
@@ -88,14 +111,56 @@ nested grids.
 |---|---|---|
 | `kpi-strip` | One-row query → tile per measurable | [panels/kpi-strip.md](panels/kpi-strip.md) |
 | `table`     | Sticky-header table, formatters, threshold badges | [panels/table.md](panels/table.md) |
-| `bars`      | Horizontal share bars | [panels/bars.md](panels/bars.md) |
+| `bars`      | Horizontal share bars (quick shortcut) | [panels/bars.md](panels/bars.md) |
+| `chart`     | Categorical bars with `color_by`, vertical or horizontal | [panels/chart.md](panels/chart.md) |
+| `line`      | Time-series / ordered x-axis with one or more series | [panels/line.md](panels/line.md) |
+| `combo`     | Bars + line on dual axes — analytical workhorse | [panels/combo.md](panels/combo.md) |
 | `markdown`  | Narrative text, no query | [panels/markdown.md](panels/markdown.md) |
 | `hero`      | Templated sentence anchored to another panel's first row | [panels/hero.md](panels/hero.md) |
+| `callouts`  | Templated cards anchored to N rows of another panel | [panels/callouts.md](panels/callouts.md) |
 | `html`      | Static markup (sanitized) + optional templated `query` | [panels/html.md](panels/html.md) |
 | `script`    | JS escape hatch — drill-down, third-party libs. Last resort. | [panels/script.md](panels/script.md) |
 
 `script` has a two-of-three decision gate at the top of its page.
 Read it before reaching for `script`.
+
+## Cross-panel filtering
+
+Any `table`, `chart`, `combo`, or `line` panel can drive a param
+update on click via `on_click`:
+
+```jsonc
+{
+  "id": "handoffs", "type": "table",
+  "columns": [ /* … */ ],
+  "on_click": { "set_param": "year", "from": "year_of_change" }
+}
+```
+
+Clicking a row (or a bar / point) writes `row[from]` to the named
+param. Panels whose query interpolates `{{year}}` re-run; the rest
+are untouched. The toolbar input syncs automatically.
+
+`on_click` is the right answer when a click on a row should drill
+into a snapshot of the corresponding period or entity. It is the
+wrong answer for free-form filters — those are still params.
+
+## Annotations
+
+`line`, `combo`, and `chart` accept an `annotations` block that
+overlays vertical reference lines from another panel's rows:
+
+```jsonc
+"annotations": {
+  "source":    "handoffs",        // another panel id
+  "x_key":     "year_of_change",  // matched against this chart's x_key
+  "label_key": "new_leader"       // optional text label
+}
+```
+
+Pairs naturally with the **event log** shape: a `table` lists the
+moments, a `combo` plots the underlying metric, and the annotations
+tie them together visually.
 
 ## Formatters
 

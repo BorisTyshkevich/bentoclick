@@ -1,0 +1,52 @@
+{
+  "title": "US Airline Yearly Leaders",
+  "subtitle": "Which Reporting_Airline flew the most completed flights each year (1987–2025), and where did leadership change most sharply? Click a handoff row to drill into that year. Requires the `ontime.fact_ontime` table.",
+  "spec_version": 1,
+  "concurrent": true,
+  "params": [
+    { "name": "focus_year", "type": "int", "min": 1987, "max": 2025, "default": 2000, "label": "Focus year" }
+  ],
+  "panels": [
+    {
+      "id": "yearly", "type": "combo", "width": 12, "title": "Yearly leader (flights) with margin over #2",
+      "query": "WITH ranked AS (SELECT Year AS y, Reporting_Airline AS carrier, count() AS flights, row_number() OVER (PARTITION BY Year ORDER BY count() DESC) AS rk FROM ontime.fact_ontime WHERE Cancelled = 0 GROUP BY y, carrier) SELECT y AS year, anyIf(carrier, rk = 1) AS leader_airline, anyIf(flights, rk = 1) AS leader_flights, anyIf(flights, rk = 1) - anyIf(flights, rk = 2) AS margin FROM ranked GROUP BY year ORDER BY year",
+      "x_key": "year",
+      "bars": { "key": "leader_flights", "color_by": "leader_airline", "label": "Leader flights" },
+      "line": { "key": "margin", "axis": "right", "label": "Margin over #2" },
+      "y_format_left": "num",
+      "y_format_right": "num",
+      "annotations": {
+        "source": "handoffs",
+        "x_key":  "year_of_change",
+        "label_key": "new_leader"
+      }
+    },
+    {
+      "id": "handoffs", "type": "table", "width": 6, "title": "Leadership handoffs",
+      "query": "WITH yl AS (SELECT y AS year, anyIf(carrier, rk = 1) AS leader_airline, anyIf(flights, rk = 1) AS leader_flights, anyIf(flights, rk = 2) AS runner_up_flights FROM (SELECT Year AS y, Reporting_Airline AS carrier, count() AS flights, row_number() OVER (PARTITION BY Year ORDER BY count() DESC) AS rk FROM ontime.fact_ontime WHERE Cancelled = 0 GROUP BY y, carrier) GROUP BY y), changed AS (SELECT year AS year_of_change, lagInFrame(leader_airline) OVER (ORDER BY year) AS old_leader, leader_airline AS new_leader, leader_flights AS margin_this_year, runner_up_flights AS margin_prev_year FROM yl) SELECT * FROM changed WHERE old_leader != '' AND old_leader != new_leader ORDER BY year_of_change",
+      "columns": [
+        { "key": "year_of_change",   "label": "Year",       "align": "right" },
+        { "key": "old_leader",       "label": "From" },
+        { "key": "new_leader",       "label": "To" },
+        { "key": "margin_this_year", "label": "New leader flights", "format": "num", "align": "right" }
+      ],
+      "on_click": { "set_param": "focus_year", "from": "year_of_change" }
+    },
+    {
+      "id": "narrative", "type": "callouts", "width": 6, "title": "Notable handoffs",
+      "anchor": "handoffs",
+      "rows": "all",
+      "template": "**{{year_of_change}}** — **{{old_leader}} → {{new_leader!}}**: new leader posted {{margin_this_year|num}} flights."
+    },
+    {
+      "id": "focus_kpis", "type": "kpi-strip", "width": 12,
+      "query": "SELECT count() AS flights, uniqExact(Reporting_Airline) AS airlines, countIf(Cancelled = 1) AS cancelled, countIf(DepDel15 = 0 AND Cancelled = 0) / count() AS ontime_share FROM ontime.fact_ontime WHERE Year = {{focus_year}}",
+      "tiles": [
+        { "key": "flights",      "label": "Flights",                  "format": "num" },
+        { "key": "airlines",     "label": "Airlines",                 "format": "num" },
+        { "key": "cancelled",    "label": "Cancelled",                "format": "num" },
+        { "key": "ontime_share", "label": "On-time departure",        "format": "pct" }
+      ]
+    }
+  ]
+}

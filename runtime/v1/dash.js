@@ -5,14 +5,23 @@
 // `script` panels that reference `DASH.spec.*`. Named exports support
 // unit testing in happy-dom (see tests/runtime/unit/).
 //
-// Source: adapted from acm/mcp/dash/assets/dash-runtime.js (the pre-v1
-// blob runtime). Differences:
-//  - ES module structure (was an IIFE on `window`).
-//  - Hybrid mode (`#dash-hybrid`) is gone — HTML lives in `html` and
-//    `script` panel types instead.
-//  - Two new panel types: `html` (static markup + optional templated
-//    query) and `script` (JS escape hatch with the full DASH.spec.*
-//    API and sandboxed iframe).
+// SVG chart primitives live in ./charts.js (line/combo/chart renderers
+// below). Browsers load this as a module so the relative import
+// resolves through the same /lib/v1/ origin as dash.js itself.
+
+import {
+  palette as chartPalette,
+  colorFor,
+  linearScale,
+  bandScale,
+  niceTicks,
+  linePath,
+  svgRoot,
+  axisBottom,
+  axisY,
+  annotationLine,
+  el as svgEl,
+} from './charts.js';
 
 // ============================================================
 // Formatters
@@ -309,9 +318,42 @@ export const PANELS = {
   'bars':      renderBars,
   'markdown':  renderMarkdown,
   'hero':      renderHero,
+  'callouts':  renderCallouts,
   'html':      renderHtml,
   'script':    renderScript,
+  'line':      renderLine,
+  'combo':     renderCombo,
+  'chart':     renderChart,
 };
+
+// Common card scaffolding for new panel renderers — title + accent.
+// Existing renderers inline this; kept separate to avoid churning them.
+function makeCard(panel, extraClass) {
+  const card = document.createElement('div');
+  card.className = 'card' + (extraClass ? ' ' + extraClass : '');
+  if (panel.accent) card.setAttribute('data-accent', panel.accent);
+  if (panel.title) {
+    const h = document.createElement('h2');
+    h.textContent = panel.title;
+    card.appendChild(h);
+  }
+  return card;
+}
+
+// `on_click: { set_param, from }` — wire a click target to a param
+// update. Click handlers are no-ops when `ctx.spec` is missing or
+// when `from` doesn't resolve on the row (e.g. tests with no spec).
+function wireOnClick(target, panel, row, ctx) {
+  const oc = panel.on_click;
+  if (!oc || !oc.set_param || !ctx || !ctx.spec || !ctx.spec.setParam) return;
+  const fromKey = oc.from || oc.set_param;
+  if (!(fromKey in row)) return;
+  target.classList.add('chart-clickable');
+  target.style.cursor = 'pointer';
+  target.addEventListener('click', () => {
+    ctx.spec.setParam(oc.set_param, row[fromKey]);
+  });
+}
 
 function renderKpiStrip(panel, state, ctx) {
   const strip = document.createElement('div');
@@ -403,8 +445,8 @@ function renderTable(panel, state, ctx) {
         + fmt.esc(panel.empty_text || 'no data') + '</td></tr>';
       return;
     }
-    tbody.innerHTML = rows.map((r) => {
-      return '<tr>' + (panel.columns || []).map((c) => {
+    tbody.innerHTML = rows.map((r, ri) => {
+      return '<tr data-row-index="' + ri + '">' + (panel.columns || []).map((c) => {
         const raw = r[c.key];
         let cell = applyFormat(ctx.api, c.format || 'raw', raw, c.format_fn);
         const badgeCls = pickBadgeClass(c.badge, raw);
@@ -415,6 +457,13 @@ function renderTable(panel, state, ctx) {
         return '<td' + (c.align === 'right' ? ' class="right"' : '') + '>' + cell + '</td>';
       }).join('') + '</tr>';
     }).join('');
+    if (panel.on_click && ctx && ctx.spec && ctx.spec.setParam) {
+      tbody.querySelectorAll('tr[data-row-index]').forEach((tr) => {
+        const idx = Number(tr.getAttribute('data-row-index'));
+        const row = rows[idx];
+        if (row) wireOnClick(tr, panel, row, ctx);
+      });
+    }
   };
   state.tbodyEl = tbody;
   return card;
@@ -462,6 +511,448 @@ function renderBars(panel, state, ctx) {
         + '<span style="text-align:right">' + applyFormat(ctx.api, formatName, v) + '</span>'
         + '</div>';
     }).join('');
+  };
+  return card;
+}
+
+// `line` / `combo` / `chart` share a draw pipeline: parse rows into
+// x/series values, build scales, render axes + glyphs into an SVG.
+// They differ in glyph type (path vs bars vs combo) and in how they
+// resolve series. Helpers are kept local rather than exported because
+// the spec contract is the panel fields, not the helper API.
+
+function resolveSeries(panel, rows) {
+  // Returns { series: [{ key, label, color? }], xs: [unique x values] }.
+  // Two shapes supported:
+  //   1. Explicit `series: [{key, label, color?}]` — wide format.
+  //   2. `series_key` + `value_key` — pivot from long format. The
+  //      distinct values in `series_key` become series labels.
+  if (Array.isArray(panel.series) && panel.series.length) {
+    const xs = [];
+    const seen = new Set();
+    rows.forEach((r) => {
+      const x = r[panel.x_key];
+      const k = String(x);
+      if (!seen.has(k)) { seen.add(k); xs.push(x); }
+    });
+    return { series: panel.series.slice(), xs, byX: null };
+  }
+  if (panel.series_key && panel.value_key) {
+    const xs = [];
+    const xSeen = new Set();
+    const sSeen = new Set();
+    const series = [];
+    rows.forEach((r) => {
+      const xk = String(r[panel.x_key]);
+      if (!xSeen.has(xk)) { xSeen.add(xk); xs.push(r[panel.x_key]); }
+      const sk = String(r[panel.series_key]);
+      if (!sSeen.has(sk)) {
+        sSeen.add(sk);
+        series.push({ key: r[panel.series_key], label: String(r[panel.series_key]) });
+      }
+    });
+    // byX[xstr][series.key] = value
+    const byX = {};
+    rows.forEach((r) => {
+      const xk = String(r[panel.x_key]);
+      const sk = String(r[panel.series_key]);
+      (byX[xk] = byX[xk] || {})[sk] = r[panel.value_key];
+    });
+    return { series, xs, byX };
+  }
+  // Single-series fallback: value_key only.
+  const vk = panel.value_key || 'value';
+  const xs = rows.map((r) => r[panel.x_key]);
+  return {
+    series: [{ key: vk, label: panel.label || vk }],
+    xs,
+    byX: null,
+  };
+}
+
+function seriesValueAt(panel, rows, byX, seriesObj, x) {
+  if (byX) {
+    const xk = String(x);
+    const sk = String(seriesObj.key);
+    const v = byX[xk] && byX[xk][sk];
+    return Number(v);
+  }
+  // Wide format: find the row whose x_key matches, read seriesObj.key.
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][panel.x_key]) === String(x)) {
+      return Number(rows[i][seriesObj.key]);
+    }
+  }
+  return NaN;
+}
+
+function chartEmpty(card, body, panel) {
+  body.innerHTML = '<div style="color:var(--fg-dim);padding:8px 0">'
+    + fmt.esc(panel.empty_text || 'no data') + '</div>';
+}
+
+function getAnnotationRows(panel, ctx) {
+  const a = panel.annotations;
+  if (!a || !a.source || !ctx || !ctx.spec || !ctx.spec.panels) return [];
+  const src = ctx.spec.panels[a.source];
+  if (!src || !Array.isArray(src.rows)) return [];
+  return src.rows;
+}
+
+function drawAnnotations(plot, panel, xScale, ih, ctx) {
+  const a = panel.annotations;
+  if (!a || !a.x_key) return;
+  const rows = getAnnotationRows(panel, ctx);
+  if (!rows.length) return;
+  rows.forEach((r) => {
+    const xv = r[a.x_key];
+    if (xv == null) return;
+    const x = xScale(xv);
+    if (x == null || !isFinite(x)) return;
+    const label = a.label_key ? r[a.label_key] : null;
+    plot.appendChild(annotationLine({ x, ih, label }));
+  });
+}
+
+function buildLegend(seriesList, colorOf) {
+  const wrap = document.createElement('div');
+  wrap.className = 'chart-legend';
+  seriesList.forEach((s) => {
+    const item = document.createElement('span');
+    const sw = document.createElement('span');
+    sw.className = 'sw';
+    sw.style.background = colorOf(s);
+    item.appendChild(sw);
+    item.appendChild(document.createTextNode(s.label || String(s.key)));
+    wrap.appendChild(item);
+  });
+  return wrap;
+}
+
+function subscribeAnnotations(state, panel, ctx, redraw) {
+  if (!panel.annotations || !panel.annotations.source) return;
+  if (!ctx || !ctx.spec || !ctx.spec.on) return;
+  if (state._annSub) return;
+  state._annSub = true;
+  ctx.spec.on('panel:loaded', (ev) => {
+    if (ev && ev.id === panel.annotations.source) redraw();
+  });
+}
+
+function renderLine(panel, state, ctx) {
+  const card = makeCard(panel);
+  const body = document.createElement('div');
+  card.appendChild(body);
+
+  const xFmt = (v) => applyFormat(ctx.api, panel.x_format || 'raw', v);
+  const yFmt = (v) => applyFormat(ctx.api, panel.y_format || 'num', v);
+
+  function draw(rows) {
+    body.innerHTML = '';
+    if (!rows || !rows.length) return chartEmpty(card, body, panel);
+    const { series, xs, byX } = resolveSeries(panel, rows);
+    const root = svgRoot({ width: 480, height: 220 });
+    const xScale = bandScale(xs, [0, root.iw], 0);
+    let yMin = Infinity, yMax = -Infinity;
+    series.forEach((s) => {
+      xs.forEach((x) => {
+        const v = seriesValueAt(panel, rows, byX, s, x);
+        if (isFinite(v)) {
+          if (v < yMin) yMin = v;
+          if (v > yMax) yMax = v;
+        }
+      });
+    });
+    if (!isFinite(yMin)) { yMin = 0; yMax = 1; }
+    if (yMin > 0) yMin = 0;
+    const ticks = niceTicks(yMin, yMax, 5);
+    const yScale = linearScale([ticks[0], ticks[ticks.length - 1]], [root.ih, 0]);
+    root.plot.appendChild(axisY({ ticks, scale: yScale, iw: root.iw, ih: root.ih, format: yFmt }));
+    const xTicks = xs.length > 12 ? xs.filter((_, i) => i % Math.ceil(xs.length / 8) === 0) : xs;
+    root.plot.appendChild(axisBottom({ ticks: xTicks, scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
+    const colorOf = (s, i) => s.color || chartPalette[i % chartPalette.length];
+    series.forEach((s, i) => {
+      const pts = xs.map((x) => [xScale(x), yScale(seriesValueAt(panel, rows, byX, s, x))]);
+      const path = svgEl('path', {
+        d: linePath(pts),
+        class: 'chart-line',
+        stroke: colorOf(s, i),
+      });
+      root.plot.appendChild(path);
+      pts.forEach(([cx, cy], pi) => {
+        if (!isFinite(cx) || !isFinite(cy)) return;
+        const dot = svgEl('circle', {
+          cx, cy, r: 3, fill: colorOf(s, i), class: 'chart-point',
+        });
+        const xv = xs[pi];
+        if (panel.on_click) {
+          const row = (byX && byX[String(xv)]) ? { [panel.x_key]: xv } : (rows.find((r) => String(r[panel.x_key]) === String(xv)) || { [panel.x_key]: xv });
+          wireOnClick(dot, panel, row, ctx);
+        }
+        root.plot.appendChild(dot);
+      });
+    });
+    drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
+    body.appendChild(root.svg);
+    if (series.length > 1) body.appendChild(buildLegend(series, (s) => colorOf(s, series.indexOf(s))));
+  }
+
+  state.update = function (rows) {
+    state.rows = rows || [];
+    draw(state.rows);
+  };
+  subscribeAnnotations(state, panel, ctx, () => draw(state.rows || []));
+  return card;
+}
+
+function renderCombo(panel, state, ctx) {
+  const card = makeCard(panel);
+  const body = document.createElement('div');
+  card.appendChild(body);
+  const xFmt = (v) => applyFormat(ctx.api, panel.x_format || 'raw', v);
+  const lFmt = (v) => applyFormat(ctx.api, panel.y_format_left || 'num', v);
+  const rFmt = (v) => applyFormat(ctx.api, panel.y_format_right || 'num', v);
+  const barsCfg = panel.bars || {};
+  const lineCfg = panel.line || {};
+
+  function draw(rows) {
+    body.innerHTML = '';
+    if (!rows || !rows.length) return chartEmpty(card, body, panel);
+    const xs = rows.map((r) => r[panel.x_key]);
+    const root = svgRoot({ width: 480, height: 240, padding: { top: 10, right: 56, bottom: 28, left: 52 } });
+    const xScale = bandScale(xs, [0, root.iw], 0.15);
+
+    const barVals = rows.map((r) => Number(r[barsCfg.key]) || 0);
+    const lineVals = rows.map((r) => Number(r[lineCfg.key]) || 0);
+    const lTicks = niceTicks(Math.min(0, ...barVals), Math.max(0, ...barVals), 5);
+    const rTicks = niceTicks(Math.min(0, ...lineVals), Math.max(0, ...lineVals), 5);
+    const lScale = linearScale([lTicks[0], lTicks[lTicks.length - 1]], [root.ih, 0]);
+    const rScale = linearScale([rTicks[0], rTicks[rTicks.length - 1]], [root.ih, 0]);
+
+    root.plot.appendChild(axisY({ ticks: lTicks, scale: lScale, iw: root.iw, ih: root.ih, format: lFmt }));
+    if (lineCfg.axis === 'right') {
+      root.plot.appendChild(axisY({ ticks: rTicks, scale: rScale, iw: root.iw, ih: root.ih, format: rFmt, orient: 'right', grid: false }));
+    }
+    const xTicks = xs.length > 12 ? xs.filter((_, i) => i % Math.ceil(xs.length / 8) === 0) : xs;
+    root.plot.appendChild(axisBottom({ ticks: xTicks, scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
+
+    const bw = xScale.bandwidth;
+    const zeroY = lScale(0);
+    rows.forEach((r, i) => {
+      const v = barVals[i];
+      const cx = xScale(xs[i]);
+      const y = lScale(v);
+      const h = Math.abs(zeroY - y);
+      const color = barsCfg.color_by
+        ? colorFor(r[barsCfg.color_by])
+        : chartPalette[0];
+      const rect = svgEl('rect', {
+        x: cx - bw / 2, y: Math.min(zeroY, y), width: bw, height: h,
+        fill: color, class: 'chart-bar',
+      });
+      wireOnClick(rect, panel, r, ctx);
+      root.plot.appendChild(rect);
+    });
+
+    const lineColor = lineCfg.color || chartPalette[2];
+    const lineUsesRight = lineCfg.axis === 'right';
+    const yL = lineUsesRight ? rScale : lScale;
+    const pts = rows.map((r, i) => [xScale(xs[i]), yL(lineVals[i])]);
+    root.plot.appendChild(svgEl('path', {
+      d: linePath(pts), class: 'chart-line', stroke: lineColor,
+    }));
+    pts.forEach(([cx, cy], i) => {
+      if (!isFinite(cx) || !isFinite(cy)) return;
+      const dot = svgEl('circle', {
+        cx, cy, r: 3, fill: lineColor, class: 'chart-point',
+      });
+      wireOnClick(dot, panel, rows[i], ctx);
+      root.plot.appendChild(dot);
+    });
+
+    drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
+    body.appendChild(root.svg);
+
+    // Legend if labels are provided.
+    if (barsCfg.label || lineCfg.label) {
+      const legend = document.createElement('div');
+      legend.className = 'chart-legend';
+      if (barsCfg.label) {
+        const it = document.createElement('span');
+        const sw = document.createElement('span'); sw.className = 'sw';
+        sw.style.background = barsCfg.color_by ? '#888' : chartPalette[0];
+        it.appendChild(sw); it.appendChild(document.createTextNode(barsCfg.label));
+        legend.appendChild(it);
+      }
+      if (lineCfg.label) {
+        const it = document.createElement('span');
+        const sw = document.createElement('span'); sw.className = 'sw';
+        sw.style.background = lineColor;
+        it.appendChild(sw); it.appendChild(document.createTextNode(lineCfg.label));
+        legend.appendChild(it);
+      }
+      body.appendChild(legend);
+    }
+  }
+
+  state.update = function (rows) {
+    state.rows = rows || [];
+    draw(state.rows);
+  };
+  subscribeAnnotations(state, panel, ctx, () => draw(state.rows || []));
+  return card;
+}
+
+function renderChart(panel, state, ctx) {
+  const card = makeCard(panel);
+  const body = document.createElement('div');
+  card.appendChild(body);
+  const xFmt = (v) => applyFormat(ctx.api, panel.x_format || 'raw', v);
+  const yFmt = (v) => applyFormat(ctx.api, panel.format || 'num', v);
+  const orientation = panel.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+  const valueKey = panel.value_key || 'value';
+  const xKey = panel.x_key || panel.label_key || 'label';
+
+  function draw(rows) {
+    body.innerHTML = '';
+    if (!rows || !rows.length) return chartEmpty(card, body, panel);
+    const labels = rows.map((r) => r[xKey]);
+    const values = rows.map((r) => Number(r[valueKey]) || 0);
+    const colorOf = (r) => panel.color_by
+      ? colorFor(r[panel.color_by])
+      : chartPalette[0];
+
+    if (orientation === 'horizontal') {
+      const root = svgRoot({
+        width: 480, height: Math.max(120, rows.length * 24 + 40),
+        padding: { top: 8, right: 12, bottom: 24, left: 120 },
+      });
+      const yScale = bandScale(labels, [0, root.ih], 0.2);
+      const vMax = Math.max(1, ...values);
+      const xTicks = niceTicks(0, vMax, 4);
+      const xScale = linearScale([0, xTicks[xTicks.length - 1]], [0, root.iw]);
+      root.plot.appendChild(axisBottom({ ticks: xTicks, scale: xScale, iw: root.iw, ih: root.ih, format: yFmt }));
+      // Labels on the left.
+      labels.forEach((lab) => {
+        const cy = yScale(lab);
+        const t = svgEl('text', {
+          x: -6, y: cy + 4, 'text-anchor': 'end', class: 'chart-tick-label',
+        });
+        t.textContent = String(lab);
+        root.plot.appendChild(t);
+      });
+      rows.forEach((r, i) => {
+        const cy = yScale(labels[i]);
+        const w = xScale(values[i]);
+        const rect = svgEl('rect', {
+          x: 0, y: cy - yScale.bandwidth / 2, width: Math.max(0, w), height: yScale.bandwidth,
+          fill: colorOf(r), class: 'chart-bar',
+        });
+        wireOnClick(rect, panel, r, ctx);
+        root.plot.appendChild(rect);
+      });
+      body.appendChild(root.svg);
+      return;
+    }
+
+    // Vertical bars.
+    const root = svgRoot({ width: 480, height: 220 });
+    const xScale = bandScale(labels, [0, root.iw], 0.2);
+    const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values), 5);
+    const yScale = linearScale([ticks[0], ticks[ticks.length - 1]], [root.ih, 0]);
+    root.plot.appendChild(axisY({ ticks, scale: yScale, iw: root.iw, ih: root.ih, format: yFmt }));
+    const xTicks = labels.length > 12 ? labels.filter((_, i) => i % Math.ceil(labels.length / 8) === 0) : labels;
+    root.plot.appendChild(axisBottom({ ticks: xTicks, scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
+    const bw = xScale.bandwidth;
+    const zeroY = yScale(0);
+    rows.forEach((r, i) => {
+      const cx = xScale(labels[i]);
+      const y = yScale(values[i]);
+      const h = Math.abs(zeroY - y);
+      const rect = svgEl('rect', {
+        x: cx - bw / 2, y: Math.min(zeroY, y), width: bw, height: h,
+        fill: colorOf(r), class: 'chart-bar',
+      });
+      wireOnClick(rect, panel, r, ctx);
+      root.plot.appendChild(rect);
+    });
+    drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
+    body.appendChild(root.svg);
+  }
+
+  state.update = function (rows) {
+    state.rows = rows || [];
+    draw(state.rows);
+  };
+  subscribeAnnotations(state, panel, ctx, () => draw(state.rows || []));
+  return card;
+}
+
+// `callouts` — narrative pinned to N rows of an anchor panel. Sibling
+// to `hero`, which is single-row only. Reuses the same `{{key|fmt!}}`
+// template grammar.
+function renderCallouts(panel, state, ctx) {
+  const card = makeCard(panel, 'callouts-card');
+  card.setAttribute('data-accent', panel.accent || 'primary');
+  const list = document.createElement('div');
+  list.className = 'callouts';
+  card.appendChild(list);
+
+  function selectRows(rows) {
+    const sel = panel.rows == null ? 'all' : panel.rows;
+    if (sel === 'all') return rows.slice();
+    if (Array.isArray(sel)) {
+      return sel.map((i) => rows[i]).filter((r) => r != null);
+    }
+    if (typeof sel === 'number' && isFinite(sel)) {
+      return rows.slice(0, Math.max(0, Math.floor(sel)));
+    }
+    return rows.slice();
+  }
+
+  function renderRow(row) {
+    const rendered = [];
+    const re = /\{\{\s*(\w+)(?:\s*\|\s*(\w+))?\s*(!)?\s*\}\}/g;
+    const withSentinels = String(panel.template || '').replace(re,
+      (_m, key, format, hl) => {
+        const raw = row[key];
+        const v = applyFormat(ctx.api, format || 'raw', raw == null ? '—' : raw);
+        rendered.push(hl ? '<span class="hl">' + v + '</span>' : v);
+        return '\x00' + (rendered.length - 1) + '\x00';
+      });
+    let html = mdInline(fmt.esc(withSentinels));
+    html = html.replace(/\x00(\d+)\x00/g, (_m, i) => rendered[+i]);
+    const div = document.createElement('div');
+    div.className = 'callout';
+    div.innerHTML = html;
+    return div;
+  }
+
+  function tryRefresh() {
+    const spec = ctx.spec;
+    if (!spec || !spec.panels) {
+      list.innerHTML = '';
+      return;
+    }
+    const anchor = spec.panels[panel.anchor];
+    if (!anchor || !Array.isArray(anchor.rows) || !anchor.rows.length) {
+      list.innerHTML = '<div style="color:var(--fg-dim);font-size:12px">(waiting for '
+        + fmt.esc(panel.anchor || '?') + ')</div>';
+      return;
+    }
+    const picked = selectRows(anchor.rows);
+    list.innerHTML = '';
+    picked.forEach((r) => list.appendChild(renderRow(r)));
+  }
+
+  state.update = function () {
+    tryRefresh();
+    if (!state._subscribed && ctx.spec && ctx.spec.on) {
+      state._subscribed = true;
+      ctx.spec.on('panel:loaded', (ev) => {
+        if (ev.id === panel.anchor) tryRefresh();
+      });
+    }
   };
   return card;
 }
@@ -630,7 +1121,7 @@ function renderScript(panel, state, ctx) {
 // ============================================================
 // Param controls in the toolbar
 // ============================================================
-export function buildParamControls(paramDefs, current, onChange) {
+export function buildParamControls(paramDefs, current, onChange, inputsOut) {
   const bar = document.createElement('div');
   bar.className = 'dash-toolbar';
   bar.style.cssText = 'display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 16px;';
@@ -674,6 +1165,7 @@ export function buildParamControls(paramDefs, current, onChange) {
     input.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') commit();
     });
+    if (inputsOut) inputsOut[p.name] = input;
     wrap.appendChild(input);
     bar.appendChild(wrap);
   });
@@ -754,8 +1246,37 @@ export class SpecRuntime {
     this._listeners = {};
     this.params = {};
     this.panels = {};
-    (spec.params || []).forEach((p) => { this.params[p.name] = p.default; });
+    this._paramInputs = {};
+    this._paramDefs = {};
+    (spec.params || []).forEach((p) => {
+      this.params[p.name] = p.default;
+      this._paramDefs[p.name] = p;
+    });
     this._interp = makeInterpolator(spec.params, this.params);
+  }
+
+  // setParam(name, value) — called by `on_click` handlers in tables
+  // and chart panels. Coerces value to the param's declared type,
+  // syncs the toolbar input, and re-runs only panels that interpolate
+  // {{name}} in their query. Unknown params are a no-op.
+  setParam(name, value) {
+    const def = this._paramDefs[name];
+    if (!def) return false;
+    let coerced = value;
+    if (def.type === 'int') {
+      const n = Number(value);
+      if (!isFinite(n)) return false;
+      coerced = Math.trunc(n);
+    } else if (def.type === 'date') {
+      coerced = String(value);
+    } else {
+      coerced = String(value == null ? '' : value);
+    }
+    this.params[name] = coerced;
+    const inp = this._paramInputs[name];
+    if (inp) inp.value = coerced;
+    this._rerun(name);
+    return true;
   }
 
   on(ev, fn) {
@@ -801,7 +1322,7 @@ export class SpecRuntime {
     if ((spec.params || []).length) {
       const bar = buildParamControls(spec.params, self.params, (changedName) => {
         self._rerun(changedName);
-      });
+      }, self._paramInputs);
       root.appendChild(bar);
     }
 

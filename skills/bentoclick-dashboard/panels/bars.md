@@ -30,5 +30,6 @@ returns — don't rely on the renderer to sort.
 - Bar widths scale to the row with the max value (`max = 1` minimum
   so an all-zero series doesn't divide by zero).
 - Labels are HTML-escaped before render.
-- No legend, no axis ticks. For more chart shapes use a `script`
-  panel with a third-party library.
+- No legend, no axis ticks. For per-row color, ordered x-axis,
+  annotations, or click-to-filter, use [`chart`](chart.md) instead.
+  For time-series, use [`line`](line.md) or [`combo`](combo.md).
