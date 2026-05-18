@@ -199,6 +199,77 @@ describe('tweaks.mount', () => {
   });
 });
 
+describe('tweaks.mount — FAB + collapse', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    document.documentElement.removeAttribute('data-accent');
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-density');
+  });
+
+  it('mounts the FAB visible and the panel hidden', () => {
+    const panel = mount({ document, storage: memStore() });
+    expect(panel.hidden).toBe(true);
+    expect(document.querySelector('.tweaks-fab')).toBeTruthy();
+    expect(document.querySelector('.tweaks-fab svg')).toBeTruthy();   // gear icon
+    expect(document.querySelector('.tweaks-fab .kbd').textContent).toBe('Press T');
+  });
+
+  it('FAB click opens the panel and hides the FAB', () => {
+    const panel = mount({ document, storage: memStore() });
+    document.querySelector('.tweaks-fab').click();
+    expect(panel.hidden).toBe(false);
+    expect(document.querySelector('.tweaks-fab').style.display).toBe('none');
+  });
+
+  it('close button closes the panel and restores the FAB', () => {
+    const panel = mount({ document, storage: memStore() });
+    document.querySelector('.tweaks-fab').click();
+    panel.querySelector('.tw-close').click();
+    expect(panel.hidden).toBe(true);
+    expect(document.querySelector('.tweaks-fab').style.display).toBe('');
+  });
+
+  it('Escape closes the panel when open', () => {
+    const panel = mount({ document, storage: memStore() });
+    document.querySelector('.tweaks-fab').click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(panel.hidden).toBe(true);
+  });
+
+  it('T opens the panel when closed', () => {
+    const panel = mount({ document, storage: memStore() });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 't' }));
+    expect(panel.hidden).toBe(false);
+  });
+
+  it('T is ignored while typing in an input', () => {
+    const panel = mount({ document, storage: memStore() });
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true }));
+    expect(panel.hidden).toBe(true);
+  });
+
+  it('T with a modifier (Ctrl/Cmd) does not open the panel', () => {
+    const panel = mount({ document, storage: memStore() });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true }));
+    expect(panel.hidden).toBe(true);
+  });
+
+  it('narrative checkbox toggles storage + onChange', () => {
+    const s = memStore();
+    let cb = null;
+    const panel = mount({ document, storage: s, onChange: (p) => { cb = p; } });
+    const cbEl = panel.querySelector('.tw-narrative');
+    expect(cbEl.checked).toBe(true);            // default: on
+    cbEl.checked = false;
+    cbEl.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(s.getItem('bc-narrative')).toBe('off');
+    expect(cb.narrative).toBe('off');
+  });
+});
+
 describe('tweaks.applyMessage — default fallbacks', () => {
   it('fills missing fields with DEFAULTS', () => {
     // Each `data.x || DEFAULTS.x` branch in applyMessage needs to
