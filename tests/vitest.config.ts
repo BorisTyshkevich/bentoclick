@@ -69,6 +69,7 @@ export default defineConfig({
         'runtime/v1/panels/line.js',
         'runtime/v1/panels/combo.js',
         'runtime/v1/panels/chart.js',
+        'runtime/v1/panels/dataset.js',
       ],
       // Statements/lines/functions are the user-facing coverage signal.
       // Branches is set lower because v8's branch counter is strict —
@@ -192,6 +193,9 @@ export default defineConfig({
           statements: 90, branches: 70, functions: 90, lines: 90,
         },
         'runtime/v1/panels/chart.js': {
+          statements: 90, branches: 70, functions: 90, lines: 90,
+        },
+        'runtime/v1/panels/dataset.js': {
           statements: 90, branches: 70, functions: 90, lines: 90,
         },
       },

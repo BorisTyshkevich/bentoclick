@@ -1,28 +1,77 @@
 // bentoclick runtime — table panel.
 //
+// Renders the v2 design's table panel shape: a chromeless card
+// (`panel-shell`) wrapping a `.panel-head` header (title + optional
+// subtitle + ph-meta with row-count stamp + CSV icon button) and a
+// `.panel-body.nopad` containing the `.tbl-wrap > <table.bc-tbl>`.
 // Sticky-header table with per-column formatters and optional
-// threshold badges. Emits `<table class="bc-tbl">` so the v2 theme's
-// modern table styling applies; the panels.css `table.bc-tbl`
-// selector has no plain-`table` fallback.
+// threshold badges. Row click dispatches via wireOnClick.
 //
-// `panel.export !== false` adds a CSV download button at the
-// bottom. Row click dispatches via wireOnClick when the spec is
-// in scope.
+// Authoring fields (all optional):
+//   - `subtitle` → renders as `<p class="ph-sub">`.
+//   - `export !== false` → CSV icon-btn in the header meta.
+//   - `collapsible` → see `_shared.installCollapsibleChrome`.
+//   - column `mono: true` / `strong: true` / `dim: true` map to
+//     `.cell-mono` / `.cell-strong` / `.cell-dim` on the cell.
 
 import { fmt, applyFormat } from '../core/fmt.js';
 import { pickBadgeClass } from '../core/badge.js';
 import { triggerCsvDownload } from '../core/csv.js';
-import { wireOnClick } from './_shared.js';
+import { wireOnClick, installCollapsibleChrome, shouldBeCollapsible } from './_shared.js';
+
+const CSV_ICON_SVG =
+  '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>'
+  + '</svg>';
 
 export function renderTable(panel, state, ctx) {
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = 'card panel-shell';
   if (panel.accent) card.setAttribute('data-accent', panel.accent);
+
+  // ── Header ──────────────────────────────────────────────────────
+  const head = document.createElement('div');
+  head.className = 'panel-head';
+  const titleWrap = document.createElement('div');
   if (panel.title) {
     const h = document.createElement('h2');
+    h.className = 'ph-title';
     h.textContent = panel.title;
-    card.appendChild(h);
+    titleWrap.appendChild(h);
   }
+  if (panel.subtitle) {
+    const sub = document.createElement('p');
+    sub.className = 'ph-sub';
+    sub.textContent = panel.subtitle;
+    titleWrap.appendChild(sub);
+  }
+  head.appendChild(titleWrap);
+  const meta = document.createElement('div');
+  meta.className = 'ph-meta';
+  const stamp = document.createElement('span');
+  stamp.className = 'ph-stamp';
+  stamp.textContent = '—';
+  meta.appendChild(stamp);
+  // The chevron (when collapsible installs) lands between the stamp
+  // and the CSV button via installCollapsibleChrome's .ph-meta probe.
+  if (panel.export !== false) {
+    const csvBtn = document.createElement('button');
+    csvBtn.type = 'button';
+    csvBtn.className = 'icon-btn';
+    csvBtn.title = 'Export CSV';
+    csvBtn.setAttribute('aria-label', 'Export CSV');
+    csvBtn.innerHTML = CSV_ICON_SVG;
+    csvBtn.addEventListener('click', () => triggerCsvDownload(panel, state.rows || []));
+    meta.appendChild(csvBtn);
+  }
+  head.appendChild(meta);
+  card.appendChild(head);
+
+  // ── Body ────────────────────────────────────────────────────────
+  const body = document.createElement('div');
+  body.className = 'panel-body nopad';
+  const tblWrap = document.createElement('div');
+  tblWrap.className = 'tbl-wrap';
   const tbl = document.createElement('table');
   tbl.className = 'bc-tbl';
   const thead = document.createElement('thead');
@@ -49,21 +98,21 @@ export function renderTable(panel, state, ctx) {
   }
   tbody.innerHTML = skel;
   tbl.appendChild(tbody);
-  card.appendChild(tbl);
+  tblWrap.appendChild(tbl);
+  body.appendChild(tblWrap);
+  card.appendChild(body);
 
-  if (panel.export !== false) {
-    const actions = document.createElement('div');
-    actions.className = 'table-actions';
-    const btn = document.createElement('button');
-    btn.className = 'btn-mini';
-    btn.type = 'button';
-    btn.textContent = 'Export CSV';
-    btn.addEventListener('click', () => triggerCsvDownload(panel, state.rows || []));
-    actions.appendChild(btn);
-    card.appendChild(actions);
-  }
-
+  let setRowCount = null;
   state.update = function (rows) {
+    stamp.textContent = rows.length + (rows.length === 1 ? ' row' : ' rows');
+    if (shouldBeCollapsible(panel, rows.length)) {
+      if (!setRowCount) {
+        setRowCount = installCollapsibleChrome(card, {
+          startCollapsed: panel.state !== 'visible',
+        });
+      }
+      setRowCount(rows.length);
+    }
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="' + colCount + '" style="color:var(--fg-dim)">'
         + fmt.esc(panel.empty_text || 'no data') + '</td></tr>';
@@ -78,7 +127,13 @@ export function renderTable(panel, state, ctx) {
           cell = '<span class="cell-badge cell-badge-' + fmt.esc(badgeCls) + '">'
             + cell + '</span>';
         }
-        return '<td' + (c.align === 'right' ? ' class="right"' : '') + '>' + cell + '</td>';
+        const tdClasses = [];
+        if (c.align === 'right') tdClasses.push('right');
+        if (c.mono)   tdClasses.push('cell-mono');
+        if (c.strong) tdClasses.push('cell-strong');
+        if (c.dim)    tdClasses.push('cell-dim');
+        const clsAttr = tdClasses.length ? ' class="' + tdClasses.join(' ') + '"' : '';
+        return '<td' + clsAttr + '>' + cell + '</td>';
       }).join('') + '</tr>';
     }).join('');
     // wireOnClick early-returns when on_click / spec / spec.setParam

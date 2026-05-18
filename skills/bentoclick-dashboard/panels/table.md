@@ -53,6 +53,24 @@ For other palettes, use a different class name and add CSS in an
 `html` panel above the table (or in a `markdown` panel with raw
 `<style>` — note that `<style>` *is* preserved by the sanitizer).
 
+## Long result sets — `collapsible`
+
+For tables that return many rows, the panel can render in a
+partial-collapse mode: only the top of the table is visible behind a
+soft gradient fade, with a full-width "Show all rows · N" button at
+the bottom and a small chevron next to the title. Either trigger
+expands the panel; expanded, the CSV / actions bar reappears.
+
+| Value | Effect |
+|---|---|
+| `collapsible: true`  | Always install the collapse chrome; start collapsed unless `state: "visible"` is also set. |
+| `collapsible: false` | Suppress the auto-trigger even on long result sets. |
+| omitted              | Auto-enable when the result has ≥ 50 rows. |
+
+`state: "collapsed"` on a table is the partial-collapse UX (title +
+top rows + reveal CTA), *not* the chrome-only mode used by `dataset`
+panels.
+
 ## Edges
 
 - `rows = []` → renders `empty_text` (or "no data") spanning all columns.

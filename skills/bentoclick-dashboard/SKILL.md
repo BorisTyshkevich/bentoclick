@@ -118,9 +118,70 @@ nested grids.
 | `callouts`  | Templated cards anchored to N rows of another panel | [panels/callouts.md](panels/callouts.md) |
 | `html`      | Static markup (sanitized) + optional templated `query` | [panels/html.md](panels/html.md) |
 | `script`    | JS escape hatch — drill-down, third-party libs. Last resort. | [panels/script.md](panels/script.md) |
+| `dataset`   | Headless query; expose rows to other panels via `source` | [panels/dataset.md](panels/dataset.md) |
 
 `script` has a two-of-three decision gate at the top of its page.
 Read it before reaching for `script`.
+
+## Shared data and performance
+
+**Rule — share, don't repeat.** If two or more panels would run the
+same base table scan or CTE chain (≥ 1 shared `WITH` clause, or the
+same `FROM … WHERE` against a fact table), extract that SQL into a
+`dataset` panel declared first and have every consumer read from it
+via `source` + `transform`. Default the dataset to `state: "hidden"`;
+switch to `state: "collapsed"` only when the raw rows are useful for
+debugging or presenting the underlying data. Never duplicate the SQL
+across panels, and do not rely on ClickHouse's query cache to
+deduplicate — small spec edits (different `LIMIT`, different
+projection) silently bypass it.
+
+**Trigger check before writing each panel's `query`:** does another
+panel in this spec already start with the same `WITH …` block, or
+scan the same fact table with the same `WHERE`? If yes — stop and
+promote the shared SQL to a `dataset` first.
+
+When several visual panels would otherwise repeat the same expensive
+CTE chain, declare the query once as a `dataset` panel and consume it
+from each visual panel:
+
+- `source: "<panel-id>"` reads rows from another panel's result
+  instead of issuing SQL. The source must be declared earlier in
+  `panels` than the consumer.
+- `transform: "<JS function body>"` optionally reshapes the rows for
+  the consumer. Sync only. Receives `(rows, params)`; `rows` is a
+  frozen deep copy, `params` is a frozen snapshot of the current
+  param values. Must `return` an array.
+- Setting both `query` and `source` is an error.
+- `concurrent: true` still governs SQL execution. Source consumers
+  always wait for their source's load to settle, regardless of mode.
+
+For `kpi-strip` consumers, the transform should return a single-row
+array (`[{ ...tiles }]`), since `kpi-strip` reads its tile values
+from `rows[0]`.
+
+## Panel state
+
+Every panel accepts an optional `state` field:
+
+| `state`     | Effect |
+|---|---|
+| `visible`   | Default for visual panels — full card. |
+| `collapsed` | Card chrome (title) shows; body hidden via CSS. |
+| `hidden`    | Card removed from layout entirely. Default for `dataset`. |
+
+For `table` and `bars` panels, `state: "collapsed"` and the
+`collapsible: true` field both refer to the **partial-collapse UX**
+(first rows visible + gradient fade + "Show all rows" CTA), not the
+chrome-only mode used for `dataset`. Long tables/bars auto-collapse
+when their result has ≥ 50 rows; set `collapsible: false` to opt out.
+
+When a `dataset` returns 50+ rows and is useful for debugging or
+presenting the raw feed behind derived panels, declare it as
+`state: "collapsed"` rather than leaving it visible — the title chrome
+stays in layout so viewers can find it, but the bulky row dump stays
+folded by default. Reserve `state: "visible"` for small datasets
+(≤ ~20 rows) whose contents are immediately useful at a glance.
 
 ## Cross-panel filtering
 

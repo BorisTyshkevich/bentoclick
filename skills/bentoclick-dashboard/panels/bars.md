@@ -24,6 +24,7 @@ returns — don't rely on the renderer to sort.
 | `format`      | formatter for the trailing value (default `"num"`) |
 | `title`       | h2 above the panel |
 | `empty_text`  | shown when the result set is empty |
+| `collapsible` | `true` to always show the reveal chrome, `false` to suppress; omitted = auto when rows ≥ 50 (same rules as [`table`](table.md)) |
 
 ## Edges
 

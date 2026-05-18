@@ -268,6 +268,7 @@ bundle_concat "$tmp_dash" \
   runtime/v1/panels/line.js \
   runtime/v1/panels/combo.js \
   runtime/v1/panels/chart.js \
+  runtime/v1/panels/dataset.js \
   runtime/v1/dash.js
 
 echo "==> pushing runtime/v1/* to user_files"

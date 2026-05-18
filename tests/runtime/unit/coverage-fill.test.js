@@ -29,7 +29,7 @@ describe('CSV button click triggers download path', () => {
     const state = { id: 'csv-test', rows: [{ a: 1 }, { a: 2 }], update: () => {} };
     const el = PANELS.table(panel, state, ctx());
     document.body.appendChild(el);
-    const btn = el.querySelector('button.btn-mini');
+    const btn = el.querySelector('button.icon-btn');
     expect(btn).toBeTruthy();
     // Click should not throw and should run through buildCsv → Blob → click.
     expect(() => btn.click()).not.toThrow();

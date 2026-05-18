@@ -60,6 +60,7 @@ const DASH_BUNDLE = [
   'panels/line.js',
   'panels/combo.js',
   'panels/chart.js',
+  'panels/dataset.js',
   'dash.js',
 ];
 

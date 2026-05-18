@@ -63,16 +63,48 @@ describe('renderTable', () => {
     expect(state.tbodyEl.tagName).toBe('TBODY');
   });
 
-  it('renders the CSV export button by default', () => {
+  it('renders the CSV export icon-btn in the panel-head .ph-meta by default', () => {
     const state = makeState();
     const el = PANELS.table(panel, state, ctx());
-    expect(el.querySelector('button.btn-mini')).toBeTruthy();
+    const btn = el.querySelector('.panel-head .ph-meta button.icon-btn');
+    expect(btn).toBeTruthy();
+    expect(btn.getAttribute('title')).toBe('Export CSV');
   });
 
   it('omits the CSV button when panel.export === false', () => {
     const state = makeState();
     const el = PANELS.table({ ...panel, export: false }, state, ctx());
-    expect(el.querySelector('button.btn-mini')).toBeNull();
+    expect(el.querySelector('button.icon-btn')).toBeNull();
+  });
+
+  it('builds the panel-head shell with title, optional subtitle, and a row-count stamp', () => {
+    const state = makeState();
+    const el = PANELS.table({ ...panel, subtitle: 'sub line' }, state, ctx());
+    expect(el.classList.contains('panel-shell')).toBe(true);
+    expect(el.querySelector('.panel-head .ph-title').textContent).toBe('Top items');
+    expect(el.querySelector('.panel-head .ph-sub').textContent).toBe('sub line');
+    state.update([{ name: 'a', count: 1 }, { name: 'b', count: 2 }]);
+    expect(el.querySelector('.panel-head .ph-stamp').textContent).toBe('2 rows');
+    state.update([{ name: 'a', count: 1 }]);
+    expect(el.querySelector('.ph-stamp').textContent).toBe('1 row');
+  });
+
+  it('applies cell modifier classes when column hints are set', () => {
+    const state = makeState();
+    const p = {
+      ...panel,
+      columns: [
+        { key: 'name', label: 'Name', mono: true, strong: true },
+        { key: 'count', label: 'Count', format: 'num', align: 'right', dim: true },
+      ],
+    };
+    const el = PANELS.table(p, state, ctx());
+    state.update([{ name: 'x', count: 7 }]);
+    const tds = el.querySelectorAll('tbody td');
+    expect(tds[0].className).toContain('cell-mono');
+    expect(tds[0].className).toContain('cell-strong');
+    expect(tds[1].className).toContain('right');
+    expect(tds[1].className).toContain('cell-dim');
   });
 
   it('applies a badge class via thresholds', () => {
@@ -96,6 +128,103 @@ describe('renderTable', () => {
     expect(badges[0].className).toContain('cell-badge-high');
     expect(badges[1].className).toContain('cell-badge-mid');
     expect(badges[2].className).toContain('cell-badge-low');
+  });
+});
+
+describe('renderTable — collapsible', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+
+  const basePanel = {
+    type: 'table',
+    title: 'Items',
+    columns: [{ key: 'n', label: 'N', format: 'num', align: 'right' }],
+  };
+  function rowsN(n) { return Array.from({ length: n }, (_, i) => ({ n: i })); }
+
+  it('wraps the table in .tbl-wrap so the collapse gradient has a host', () => {
+    const state = makeState();
+    const el = PANELS.table(basePanel, state, ctx());
+    const wrap = el.querySelector('.tbl-wrap');
+    expect(wrap).toBeTruthy();
+    expect(wrap.querySelector('table.bc-tbl')).toBeTruthy();
+  });
+
+  it('installs collapsible chrome when collapsible:true is set explicitly', () => {
+    const state = makeState();
+    const el = PANELS.table({ ...basePanel, collapsible: true }, state, ctx());
+    state.update([{ n: 1 }, { n: 2 }]);
+    expect(el.classList.contains('panel-collapsible')).toBe(true);
+    expect(el.classList.contains('collapsed')).toBe(true);
+    expect(el.querySelector('.ph-collapse')).toBeTruthy();
+    const toggle = el.querySelector('.panel-toggle');
+    expect(toggle).toBeTruthy();
+    expect(toggle.querySelector('.row-count').textContent).toBe('2');
+  });
+
+  it('auto-enables collapsible at rows.length >= 50', () => {
+    const state = makeState();
+    const el = PANELS.table(basePanel, state, ctx());
+    state.update(rowsN(50));
+    expect(el.classList.contains('panel-collapsible')).toBe(true);
+    expect(el.querySelector('.panel-toggle .row-count').textContent).toBe('50');
+  });
+
+  it('does not collapse below the threshold without opt-in', () => {
+    const state = makeState();
+    const el = PANELS.table(basePanel, state, ctx());
+    state.update(rowsN(49));
+    expect(el.classList.contains('panel-collapsible')).toBe(false);
+    expect(el.querySelector('.panel-toggle')).toBeNull();
+  });
+
+  it('collapsible:false suppresses auto-trigger even on long results', () => {
+    const state = makeState();
+    const el = PANELS.table({ ...basePanel, collapsible: false }, state, ctx());
+    state.update(rowsN(120));
+    expect(el.classList.contains('panel-collapsible')).toBe(false);
+  });
+
+  it('bottom toggle click flips .collapsed', () => {
+    const state = makeState();
+    const el = PANELS.table({ ...basePanel, collapsible: true }, state, ctx());
+    state.update([{ n: 1 }]);
+    expect(el.classList.contains('collapsed')).toBe(true);
+    el.querySelector('.panel-toggle').click();
+    expect(el.classList.contains('collapsed')).toBe(false);
+    el.querySelector('.panel-toggle').click();
+    expect(el.classList.contains('collapsed')).toBe(true);
+  });
+
+  it('header chevron click flips .collapsed independently', () => {
+    const state = makeState();
+    const el = PANELS.table({ ...basePanel, collapsible: true }, state, ctx());
+    state.update([{ n: 1 }]);
+    el.querySelector('.ph-collapse').click();
+    expect(el.classList.contains('collapsed')).toBe(false);
+  });
+
+  it('state:"visible" overrides the default collapsed-on-install', () => {
+    const state = makeState();
+    const el = PANELS.table(
+      { ...basePanel, collapsible: true, state: 'visible' },
+      state,
+      ctx(),
+    );
+    state.update([{ n: 1 }]);
+    expect(el.classList.contains('panel-collapsible')).toBe(true);
+    expect(el.classList.contains('collapsed')).toBe(false);
+  });
+
+  it('row-count chip stays in sync across multiple state.update calls', () => {
+    const state = makeState();
+    const el = PANELS.table({ ...basePanel, collapsible: true }, state, ctx());
+    state.update(rowsN(3));
+    expect(el.querySelector('.panel-toggle .row-count').textContent).toBe('3');
+    state.update(rowsN(17));
+    expect(el.querySelector('.panel-toggle .row-count').textContent).toBe('17');
+    // Chrome was only installed once.
+    expect(el.querySelectorAll('.panel-toggle').length).toBe(1);
+    expect(el.querySelectorAll('.ph-collapse').length).toBe(1);
   });
 });
 
