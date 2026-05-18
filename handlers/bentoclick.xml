@@ -12,9 +12,16 @@
   All referenced assets live under /var/lib/clickhouse/user_files/dash/ and
   are written there by install.sh via `INSERT INTO FUNCTION file('dash/<name>', 'RawBLOB', 'String')`.
 
-  Note: ClickHouse loads only the last <http_handlers> block across config.d.
-  If another fragment on this cluster also defines <http_handlers> (e.g. an
-  OAuth callback handler), install.sh merges the two before pushing.
+  Note: ClickHouse merges sibling <rule> elements across config.d by
+  position when they lack a unique key. Without `name=`, a second
+  config.d fragment that defines a different number of <rule>s would
+  silently overwrite the rules from this file slot-for-slot
+  (upstream: https://github.com/ClickHouse/ClickHouse/issues/70636,
+  reproduced on 26.1.x). Every <rule> here therefore carries a unique
+  `name=` slug — CH uses it as the merge key so rules from every
+  fragment survive. The slug is opaque to routing; only uniqueness
+  across the cluster's full config.d matters. Verified on
+  altinity/clickhouse-server:26.1.11.20001.altinityantalya.
 
   Routes:
     GET /app                          → SPA shell
@@ -32,7 +39,7 @@
 <clickhouse>
     <http_handlers>
         <!-- SPA shell. Route parsing happens in spa.js. -->
-        <rule>
+        <rule name="bentoclick-spa-shell">
             <url><![CDATA[regex:^(/app|/v/[^/]+/[^/]+)/?(\?.*)?$]]></url>
             <methods>GET</methods>
             <handler>
@@ -57,7 +64,7 @@
         </rule>
 
         <!-- SPA bootstrap JS. Versioned alongside the shell. -->
-        <rule>
+        <rule name="bentoclick-spa-js">
             <url><![CDATA[regex:^/lib/v1/spa\.js$]]></url>
             <methods>GET</methods>
             <handler>
@@ -74,7 +81,7 @@
              page exchanges the auth code for a bearer and posts back to the
              opener. CSP is tighter than the SPA shell since no third-party
              scripts run here. -->
-        <rule>
+        <rule name="bentoclick-oauth-callback">
             <url><![CDATA[regex:^/oauth/callback(\?.*)?$]]></url>
             <methods>GET</methods>
             <handler>
@@ -90,7 +97,7 @@
         </rule>
 
         <!-- Shared dashboard runtime + theme. Cached. Versioned via /lib/vN/. -->
-        <rule>
+        <rule name="bentoclick-dash-js">
             <url><![CDATA[regex:^/lib/v1/dash\.js$]]></url>
             <methods>GET</methods>
             <handler>
@@ -107,7 +114,7 @@
              Served as a sibling so the ESM static import in dash.js
              resolves; the iframe boot path fetches it explicitly via
              synthesizeSpecWrapper(). -->
-        <rule>
+        <rule name="bentoclick-charts-js">
             <url><![CDATA[regex:^/lib/v1/charts\.js$]]></url>
             <methods>GET</methods>
             <handler>
@@ -124,7 +131,7 @@
              utilities) imported by spa.js as ES module. Extracted so
              tests can import them directly and v8 coverage tracks the
              actual file (source-slicing tests don't count). -->
-        <rule>
+        <rule name="bentoclick-spa-helpers-js">
             <url><![CDATA[regex:^/lib/v1/spa-helpers\.js$]]></url>
             <methods>GET</methods>
             <handler>
@@ -137,7 +144,7 @@
             </handler>
         </rule>
 
-        <rule>
+        <rule name="bentoclick-dash-theme-css">
             <url><![CDATA[regex:^/lib/v1/dash-theme\.css$]]></url>
             <methods>GET</methods>
             <handler>
@@ -154,7 +161,7 @@
              density / narrative). Imported by spa.js as an ES module;
              not part of the dashboard iframe srcdoc bundle. no-store
              since edits are frequent during UI work. -->
-        <rule>
+        <rule name="bentoclick-tweaks-js">
             <url><![CDATA[regex:^/lib/v1/tweaks\.js$]]></url>
             <methods>GET</methods>
             <handler>
@@ -170,7 +177,7 @@
         <!-- Runtime config: MCP/CH URLs, email domain, branding, lib version.
              Re-config is `INSERT INTO FUNCTION file('dash/config.json', ...)`
              plus an immediate browser refresh (no-store). -->
-        <rule>
+        <rule name="bentoclick-config-json">
             <url><![CDATA[regex:^/config\.json$]]></url>
             <methods>GET</methods>
             <handler>
@@ -185,7 +192,7 @@
 
         <!-- CIMD client metadata document. The SPA uses this URL as its
              client_id when calling /oauth/authorize on the AS. -->
-        <rule>
+        <rule name="bentoclick-oauth-client-json">
             <url><![CDATA[regex:^/oauth/client\.json$]]></url>
             <methods>GET</methods>
             <handler>
