@@ -79,7 +79,8 @@ NETRC_FILE="$(mktemp)"
 chmod 600 "$NETRC_FILE"
 printf 'machine %s\n  login %s\n  password %s\n' \
   "$HOST_FOR_NETRC" "$CH_USER" "$CH_PASSWORD" > "$NETRC_FILE"
-trap 'rm -f "$NETRC_FILE"' EXIT
+tmp_charts='' tmp_dash=''
+trap 'rm -f "$NETRC_FILE" "${tmp_charts}" "${tmp_dash}"' EXIT
 
 ch_curl() {
   curl -fsS --netrc-file "$NETRC_FILE" "$@"
@@ -272,7 +273,6 @@ bundle_concat "$tmp_dash" \
 echo "==> pushing runtime/v1/* to user_files"
 ch_file_upload "dash/charts.js" "$tmp_charts"
 ch_file_upload "dash/dash.js"   "$tmp_dash"
-rm -f "$tmp_charts" "$tmp_dash"
 
 # Other runtime files upload verbatim (no bundling needed).
 for f in runtime/v1/spa.html runtime/v1/spa.js runtime/v1/spa-helpers.js \
