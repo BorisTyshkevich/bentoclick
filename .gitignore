@@ -40,3 +40,6 @@ dist/
 build/
 *.tar.gz
 *.zip
+
+# Local scratch
+todo.md

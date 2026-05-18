@@ -26,15 +26,31 @@ axis, or annotations.
 | `color_by`    | optional column; same value → same color across renders |
 | `orientation` | `"vertical"` (default) or `"horizontal"` |
 | `format`      | formatter for y-axis labels (default `"num"`) |
+| `value_label` | tooltip label for the value series (vertical mode); defaults to `value_key` |
 | `annotations` | see [SKILL.md → Annotations](../SKILL.md#annotations) |
 | `on_click`    | see [SKILL.md → Cross-panel filtering](../SKILL.md#cross-panel-filtering) |
-| `accent`, `title`, `empty_text` | as usual |
+| `accent`, `title`, `subtitle`, `empty_text` | `subtitle` renders below the title in `.ph-sub` |
+
+## Layout differences by orientation
+
+| `orientation` | DOM | Hover | Best for |
+|---|---|---|---|
+| `vertical` (default) | SVG with axes, grid, vertical bars | crosshair + tooltip | time-series / wide categorical x |
+| `horizontal` | HTML `.bc-bars > .row-b > .lbl + .track + .fill + .val` | CSS `:hover` on each row | top-N rankings with long row labels |
+
+Horizontal mode shares its DOM with the `bars` panel and picks up the
+same 8px-track styling. Vertical mode shares the SVG hover/legend
+behavior with `line` and `combo`.
+
+## Interactivity (vertical, free)
+
+- Auto-stamp in header: row count + ledger elapsed_ms.
+- Hover crosshair + tooltip with the value-series label + formatted
+  value at the nearest x band.
 
 ## Edges
 
 - Vertical mode caps visible x-axis tick labels at ~8 to keep them
   readable; the bars themselves still draw for every row.
-- Horizontal mode is variable-height: each bar gets ~24px vertical
-  band. Useful for top-N rankings where labels are long.
 - Bars without `color_by` use a single palette color. The shorthand
   for "all the same color" is to omit `color_by`.
