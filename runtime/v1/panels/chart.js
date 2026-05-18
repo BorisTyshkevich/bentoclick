@@ -89,8 +89,9 @@ export function renderChart(panel, state, ctx) {
       return;
     }
 
-    // Vertical bars.
-    const root = svgRoot({ width: 480, height: 220 });
+    // Vertical bars. viewBox matches the design's chart proportions
+    // (880×280) so axis-text scaling stays at design-spec ~10–12px.
+    const root = svgRoot({ width: 880, height: 280 });
     const xScale = bandScale(labels, [0, root.iw], 0.2);
     const { ticks, scale: yScale } = yScaleFromValues(values, root.ih);
     root.plot.appendChild(axisY({ ticks, scale: yScale, iw: root.iw, ih: root.ih, format: yFmt }));

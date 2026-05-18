@@ -23,6 +23,7 @@ import {
   yScaleFromValues,
   drawAnnotations,
   buildLegend,
+  uniquePreserveOrder,
   subscribeAnnotations,
 } from './chart-helpers.js';
 
@@ -45,7 +46,10 @@ export function renderCombo(panel, state, ctx) {
     body.innerHTML = '';
     if (!rows || !rows.length) return chartEmpty(body, panel);
     const xs = rows.map((r) => r[panel.x_key]);
-    const root = svgRoot({ width: 480, height: 240, padding: { top: 10, right: 56, bottom: 28, left: 52 } });
+    // viewBox sized to match the design's `comboChart` (880×300) so
+    // axis labels render around 10–12px when the SVG scales to full
+    // panel width via `width:100%`.
+    const root = svgRoot({ width: 880, height: 300, padding: { top: 10, right: 56, bottom: 28, left: 52 } });
     const xScale = bandScale(xs, [0, root.iw], 0.15);
 
     const barVals = rows.map((r) => Number(r[barsCfg.key]) || 0);
@@ -96,13 +100,23 @@ export function renderCombo(panel, state, ctx) {
     drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
     body.appendChild(root.svg);
 
-    // Legend if labels are provided. buildLegend reads `.label` + the
-    // colorOf callback; mixed-color marker for `color_by` bars
-    // collapses to a neutral grey since one swatch can't carry the map.
-    const legendSeries = [];
-    if (barsCfg.label) legendSeries.push({ label: barsCfg.label, _color: barsCfg.color_by ? '#888' : chartPalette[0] });
-    if (lineCfg.label) legendSeries.push({ label: lineCfg.label, _color: lineColor });
-    if (legendSeries.length) body.appendChild(buildLegend(legendSeries, (s) => s._color));
+    // Legend — when bars.color_by is set, enumerate each unique value
+    // with its mapped chart-palette color (matches the design's
+    // "WN — Southwest / DL — Delta" per-category swatches). Otherwise
+    // a single bar-series swatch + the optional line-series swatch.
+    const items = [];
+    if (barsCfg.color_by) {
+      const values = uniquePreserveOrder(rows.map((r) => r[barsCfg.color_by]));
+      values.forEach((v) => {
+        items.push({ kind: 'bar', label: v, color: colorFor(v), key: 'bar:' + v });
+      });
+    } else if (barsCfg.label) {
+      items.push({ kind: 'bar', label: barsCfg.label, color: chartPalette[0], key: 'bar' });
+    }
+    if (lineCfg.label) {
+      items.push({ kind: 'line', label: lineCfg.label, color: lineColor, key: 'line' });
+    }
+    if (items.length) body.appendChild(buildLegend(items));
   }
 
   function refreshStamp() {

@@ -71,14 +71,36 @@ describe('renderCombo', () => {
     expect(el.querySelector('.chart-axis-right')).not.toBeNull();
   });
 
-  it('emits a legend when bars/line have labels', () => {
+  it('with bars.color_by, legend enumerates each unique category', () => {
     const state = makeState();
     const el = PANELS.combo(basic, state, ctx());
-    state.update([{ year: 2000, flights: 1, margin: 1, who: 'WN' }]);
+    state.update([
+      { year: 2000, flights: 1, margin: 1, who: 'WN' },
+      { year: 2001, flights: 2, margin: 1, who: 'DL' },
+      { year: 2002, flights: 1, margin: 1, who: 'WN' },
+    ]);
     const legend = el.querySelector('.chart-legend');
     expect(legend).not.toBeNull();
-    expect(legend.textContent).toContain('Flights');
-    expect(legend.textContent).toContain('Margin');
+    const items = legend.querySelectorAll('.item');
+    // Two unique bar categories + the line series.
+    expect(items.length).toBe(3);
+    expect(items[0].textContent).toBe('WN');
+    expect(items[1].textContent).toBe('DL');
+    expect(items[2].textContent).toContain('Margin');
+    // Line gets the 2px-strip swatch variant; bars get the square swatch.
+    expect(items[0].querySelector('.sw').classList.contains('line')).toBe(false);
+    expect(items[2].querySelector('.sw').classList.contains('line')).toBe(true);
+  });
+
+  it('without bars.color_by, legend collapses to a single bar-series swatch', () => {
+    const state = makeState();
+    const noColor = { ...basic, bars: { key: 'flights', label: 'Flights' } };
+    const el = PANELS.combo(noColor, state, ctx());
+    state.update([{ year: 2000, flights: 1, margin: 1 }]);
+    const items = el.querySelectorAll('.chart-legend .item');
+    expect(items.length).toBe(2);
+    expect(items[0].textContent).toBe('Flights');
+    expect(items[1].textContent).toContain('Margin');
   });
 
   it('falls back to the palette default when bars.color_by is absent', () => {

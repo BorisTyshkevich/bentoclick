@@ -84,6 +84,13 @@ describe('renderLine', () => {
       { year: 2021, k: 'b', v: 4 },
     ]);
     expect(el.querySelectorAll('path.chart-line').length).toBe(2);
+    // Multi-series triggers the legend, each item rendered with the
+    // 2px line-swatch variant (.sw.line).
+    const items = el.querySelectorAll('.chart-legend .item');
+    expect(items.length).toBe(2);
+    items.forEach((it) => {
+      expect(it.querySelector('.sw').classList.contains('line')).toBe(true);
+    });
   });
 
   it('draws annotations when source panel has rows', () => {
@@ -161,6 +168,28 @@ describe('renderLine', () => {
     // Single-x case collapses to a single value, not a range.
     state.update([{ year: 2020, v: 5 }]);
     expect(el.querySelector('.ph-stamp').textContent).toBe('2020 · 73 ms');
+  });
+
+  it('multi-series legend falls back to key when series has no label', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', x_key: 'year',
+      series: [{ key: 'a' }, { key: 'b' }],
+    }, state, ctx());
+    state.update([{ year: 2024, a: 1, b: 2 }]);
+    const labels = Array.from(el.querySelectorAll('.chart-legend .item'))
+      .map((it) => it.textContent);
+    expect(labels).toEqual(['a', 'b']);
+  });
+
+  it('stamp handles null x values without throwing', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', title: 'L', x_key: 'year', series: [{ key: 'v' }],
+    }, state, ctx());
+    state.update([{ year: null, v: 1 }, { year: 2025, v: 2 }]);
+    // First x is null → coerces to empty string; last is 2025.
+    expect(el.querySelector('.ph-stamp').textContent).toContain('2025');
   });
 
   it('stamp omits the ·ms suffix when no elapsedMs is known', () => {

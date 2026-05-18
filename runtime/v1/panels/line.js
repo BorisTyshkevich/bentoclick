@@ -44,7 +44,11 @@ export function renderLine(panel, state, ctx) {
     body.innerHTML = '';
     if (!rows || !rows.length) return chartEmpty(body, panel);
     const { series, xs, byX } = resolveSeries(panel, rows);
-    const root = svgRoot({ width: 480, height: 220 });
+    // viewBox tuned to match the v2 design's chart proportions
+    // (`bc-charts.js: lineChart` uses 880×280). With width:100% the
+    // SVG scales; a larger viewBox keeps tick-label / axis text from
+    // ballooning past ~12px at typical panel widths.
+    const root = svgRoot({ width: 880, height: 280 });
     const xScale = bandScale(xs, [0, root.iw], 0);
     const allYs = [];
     series.forEach((s) => xs.forEach((x) => {
@@ -79,7 +83,15 @@ export function renderLine(panel, state, ctx) {
     });
     drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
     body.appendChild(root.svg);
-    if (series.length > 1) body.appendChild(buildLegend(series, (s) => colorOf(s, series.indexOf(s))));
+    if (series.length > 1) {
+      const items = series.map((s, i) => ({
+        kind: 'line',
+        label: s.label || String(s.key),
+        color: colorOf(s, i),
+        key: 'line:' + (s.key || s.label || i),
+      }));
+      body.appendChild(buildLegend(items));
+    }
   }
 
   function refreshStamp() {

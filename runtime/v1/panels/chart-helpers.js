@@ -156,19 +156,45 @@ export function drawAnnotations(plot, panel, xScale, ih, ctx) {
   });
 }
 
-export function buildLegend(seriesList, colorOf) {
+// buildLegend — emit the design's `.chart-legend > .item` shape.
+//
+//   items: [{ kind: 'bar' | 'line', label, color, key? }, ...]
+//
+// `bar` items get a 10×10 swatch; `line` items get a 2px-tall 14px-wide
+// strip (the design's `.sw.line`). `key` is optional metadata for
+// click-to-toggle wiring in Stage 4 — `.item[data-legend-key]` is the
+// anchor the legend toggle handler looks for.
+export function buildLegend(items) {
   const wrap = document.createElement('div');
   wrap.className = 'chart-legend';
-  seriesList.forEach((s) => {
+  items.forEach((it) => {
     const item = document.createElement('span');
+    item.className = 'item';
+    if (it.key != null) item.setAttribute('data-legend-key', String(it.key));
     const sw = document.createElement('span');
-    sw.className = 'sw';
-    sw.style.background = colorOf(s);
+    sw.className = it.kind === 'line' ? 'sw line' : 'sw';
+    sw.style.background = it.color;
     item.appendChild(sw);
-    item.appendChild(document.createTextNode(s.label || String(s.key)));
+    item.appendChild(document.createTextNode(it.label));
     wrap.appendChild(item);
   });
   return wrap;
+}
+
+// uniquePreserveOrder — small util used by renderers to derive a
+// stable legend for a `color_by` column without dropping the first-seen
+// order of values across the rows.
+export function uniquePreserveOrder(values) {
+  const seen = new Set();
+  const out = [];
+  for (const v of values) {
+    if (v == null) continue;
+    const s = String(v);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
 }
 
 export function subscribeAnnotations(state, panel, ctx, redraw) {
