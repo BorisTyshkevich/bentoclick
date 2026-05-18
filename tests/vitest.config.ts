@@ -38,6 +38,7 @@ export default defineConfig({
         'runtime/v1/charts.js',
         'runtime/v1/spa-helpers.js',
         'runtime/v1/spa.js',
+        'runtime/v1/tweaks.js',
       ],
       // Statements/lines/functions are the user-facing coverage signal.
       // Branches is set lower because v8's branch counter is strict —
@@ -58,6 +59,11 @@ export default defineConfig({
         },
         'runtime/v1/spa.js': {
           statements: 0, branches: 0, functions: 0, lines: 0,
+        },
+        // tweaks.js is the floating display-tweaks panel — same 90%
+        // floor as the other testable modules.
+        'runtime/v1/tweaks.js': {
+          statements: 90, branches: 85, functions: 90, lines: 90,
         },
       },
     },

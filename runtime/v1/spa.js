@@ -24,6 +24,7 @@ import {
   safeReturnTo,
   moduleToClassic,
 } from './spa-helpers.js';
+import { mount as mountTweaks, readPrefs as readTweakPrefs } from './tweaks.js';
 
 // ---- Runtime config (loaded from /config.json before main()) ----
 var CFG       = null;                    // populated by loadConfig() at boot
@@ -305,33 +306,63 @@ async function fetchDashboard(owner, slug) {
 // to them — and after moduleToClassic, both files are just top-level
 // const/function declarations sharing one script scope.
 async function synthesizeSpecWrapper(spec) {
-  var v = Math.max(1, Math.min(255, Number(spec.spec_version) || 1));
+  // Asset path is always /lib/v1/* — runtime versioning is on hold
+  // until a spec contract actually breaks (Phase 2 is when new panel
+  // types arrive and the bump to spec_version=2 makes sense). Any
+  // existing row with spec_version != 1 still gets rendered by this
+  // runtime; the field is preserved on the spec for forward use.
   var specJson = JSON.stringify(spec).replace(/<\/(?=script)/gi, '<\\/');
   var origin = location.origin;
+  // Capture current tweaks prefs once so the iframe initializes with
+  // the same look as the parent shell. Live updates come in via
+  // postMessage `{type:"tokens", data:{…}}` once the iframe loads.
+  var initialPrefs = readTweakPrefs();
+  var prefsJson = JSON.stringify(initialPrefs).replace(/<\/(?=script)/gi, '<\\/');
   async function fetchRuntime(path) {
     // `cache: 'no-cache'` forces conditional revalidation. The static
     // handler doesn't set ETag/Last-Modified, so every fetch returns
     // a fresh body — one small round-trip per /v/ load. Default cache
-    // mode (and the prior `force-cache`) honoured the handler's
-    // `max-age=300` and served stale runtime from disk after a deploy,
-    // which is how stale dash-runtime.js stuck around as PR #1 added
-    // new panel types.
-    var r = await withTimeout('/lib/v' + v + path,
+    // mode (and the prior `force-cache`) pinned stale runtime bytes
+    // for the full max-age after a deploy.
+    var r = await withTimeout('/lib/v1' + path,
       { headers: { 'Accept': 'application/javascript' }, cache: 'no-cache' });
     if (!r.ok) throw new Error('runtime fetch failed: ' + path + ' HTTP ' + r.status);
     return r.text();
   }
   var parts = await Promise.all([
     fetchRuntime('/charts.js'),
-    fetchRuntime('/dash-runtime.js'),
+    fetchRuntime('/dash.js'),
   ]);
   var runtimeJs = moduleToClassic(parts.join('\n'));
+  // Iframe-side tweaks listener — toggles data-accent/data-theme/
+  // data-density on the iframe's own <html> in response to
+  // `{type:"tokens", data:{…}}` messages from the parent.
+  var tweaksBoot =
+    '(function(){\n'
+    + '  function apply(p){\n'
+    + '    var r=document.documentElement;\n'
+    + '    if (p && p.accent && p.accent !== "teal") r.setAttribute("data-accent", p.accent); else r.removeAttribute("data-accent");\n'
+    + '    if (p && p.theme === "light") r.setAttribute("data-theme", "light"); else r.removeAttribute("data-theme");\n'
+    + '    if (p && p.density === "dense") r.setAttribute("data-density", "dense"); else r.removeAttribute("data-density");\n'
+    + '    var hide = (p && p.narrative === "off");\n'
+    + '    document.querySelectorAll("[data-narrative]").forEach(function(el){\n'
+    + '      if (hide) el.setAttribute("data-hidden-by-tweak", ""); else el.removeAttribute("data-hidden-by-tweak");\n'
+    + '    });\n'
+    + '  }\n'
+    + '  apply(' + prefsJson + ');\n'
+    + '  window.addEventListener("message", function(ev){\n'
+    + '    if (ev.source !== window.parent) return;\n'
+    + '    var m = ev.data;\n'
+    + '    if (m && m.type === "tokens" && m.data) apply(m.data);\n'
+    + '  });\n'
+    + '})();';
   return ''
     + '<!doctype html><html lang="en"><head>'
     + '<meta charset="utf-8">'
-    + '<link rel="stylesheet" href="' + origin + '/lib/v' + v + '/dash-theme.css">'
+    + '<link rel="stylesheet" href="' + origin + '/lib/v1/dash-theme.css">'
     + '</head><body>'
     + '<div id="dash-root"></div>'
+    + '<script>\n' + tweaksBoot + '\n<\/script>'
     + '<script>\n' + runtimeJs.replace(/<\/(?=script)/gi, '<\\/') + '\n<\/script>'
     + '<script>(async () => {\n'
     + '  try { await window.DASH.renderSpec(' + specJson + ', document.getElementById("dash-root")); }\n'
@@ -384,8 +415,25 @@ function renderIntoFrame(html) {
   frame.addEventListener('load', function onload(){
     frame.removeEventListener('load', onload);
     showFrame();
+    setupTweaksForwarding(frame);
   });
   frame.srcdoc = bootScript() + html;
+}
+
+// Mount the floating tweaks panel and wire its onChange to forward
+// the new prefs into the dashboard iframe via postMessage.
+function setupTweaksForwarding(frame) {
+  if (document.querySelector('.tweaks')) return;   // already mounted
+  mountTweaks({
+    document: document,
+    onChange: function (prefs) {
+      try {
+        if (frame && frame.contentWindow) {
+          frame.contentWindow.postMessage({ type: 'tokens', data: prefs }, '*');
+        }
+      } catch (_) { /* sandboxed iframe rejected the post; harmless */ }
+    },
+  });
 }
 
 // ---- postMessage handler for iframe's CH_FETCH RPC ----
@@ -561,6 +609,18 @@ async function renderIndex() {
 
   try { await loadConfig(); }
   catch (e) { setStatus('Config error: ' + e.message, true); return; }
+
+  // Apply persisted tweaks prefs to the parent <html> so the index,
+  // login card, and shell chrome match the user's preferred theme
+  // immediately. The floating tweaks UI itself mounts later, once
+  // there's a dashboard iframe to forward token changes into.
+  try {
+    var rootPrefs = readTweakPrefs();
+    var htmlEl = document.documentElement;
+    if (rootPrefs.accent && rootPrefs.accent !== 'teal') htmlEl.setAttribute('data-accent', rootPrefs.accent);
+    if (rootPrefs.theme === 'light') htmlEl.setAttribute('data-theme', 'light');
+    if (rootPrefs.density === 'dense') htmlEl.setAttribute('data-density', 'dense');
+  } catch (_) {}
 
   var route = parseRoute();
   if (route.kind === 'unknown') {

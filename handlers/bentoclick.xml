@@ -24,6 +24,7 @@
     GET /lib/v1/dash.js               → shared dashboard runtime (window.DASH.*)
     GET /lib/v1/charts.js             → SVG chart primitives imported by dash.js
     GET /lib/v1/dash-theme.css        → shared dashboard theme tokens
+    GET /lib/v1/tweaks.js             → floating display-tweaks panel module
     GET /oauth/callback               → OAuth code → token exchange page
     GET /config.json                  → runtime config (MCP/CH URLs, branding)
     GET /oauth/client.json            → CIMD client metadata document
@@ -146,6 +147,23 @@
                     <Cache-Control>public, max-age=300, stale-while-revalidate=3600</Cache-Control>
                 </http_response_headers>
                 <response_content>file://dash/dash-theme.css</response_content>
+            </handler>
+        </rule>
+
+        <!-- tweaks.js — floating display-tweaks panel (accent / theme /
+             density / narrative). Imported by spa.js as an ES module;
+             not part of the dashboard iframe srcdoc bundle. no-store
+             since edits are frequent during UI work. -->
+        <rule>
+            <url><![CDATA[regex:^/lib/v1/tweaks\.js$]]></url>
+            <methods>GET</methods>
+            <handler>
+                <type>static</type>
+                <content_type>application/javascript; charset=UTF-8</content_type>
+                <http_response_headers>
+                    <Cache-Control>no-store</Cache-Control>
+                </http_response_headers>
+                <response_content>file://dash/tweaks.js</response_content>
             </handler>
         </rule>
 

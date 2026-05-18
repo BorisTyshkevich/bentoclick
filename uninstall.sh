@@ -40,7 +40,7 @@ DROP FUNCTION IF EXISTS sanitize_json_text;
 SQL
 
 echo "==> removing dash/ files from user_files (best-effort)"
-for path in spa.html spa.js spa-helpers.js dash.js charts.js dash-theme.css oauth-callback.html mcp-callback.html config.json client.json bentoclick.xml; do
+for path in spa.html spa.js spa-helpers.js dash.js charts.js dash-theme.css tweaks.js oauth-callback.html mcp-callback.html config.json client.json bentoclick.xml; do
   printf "INSERT INTO FUNCTION file('dash/%s', 'RawBLOB', 'String') SELECT ''" "$path" \
     | ch_query >/dev/null 2>&1 || true
 done
