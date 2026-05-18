@@ -26,6 +26,14 @@ describe('renderTable', () => {
     expect(el.querySelector('thead th.right')).toBeTruthy();
   });
 
+  it('emits <table class="bc-tbl"> so the refreshed table styling applies', () => {
+    const state = makeState();
+    const el = PANELS.table(panel, state, ctx());
+    const tbl = el.querySelector('table');
+    expect(tbl).toBeTruthy();
+    expect(tbl.classList.contains('bc-tbl')).toBe(true);
+  });
+
   it('renders a row per data item with formatters', () => {
     const state = makeState();
     const el = PANELS.table(panel, state, ctx());

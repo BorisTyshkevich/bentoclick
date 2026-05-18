@@ -5,6 +5,14 @@
 // `script` panels that reference `DASH.spec.*`. Named exports support
 // unit testing in happy-dom (see tests/runtime/unit/).
 //
+// `spec_version` stays at 1 — the contract (panel JSON shape, param
+// types, sanitization rules) is unchanged from the original v1.
+// The visual refresh that landed alongside the tweaks panel is a
+// pure skin change: dash-theme.css ships new tokens and richer
+// panels.css selectors; `<table>` gains a `.bc-tbl` class so the
+// new table styling applies. All other class output is unchanged,
+// so legacy dashboards (with no re-save) inherit the new look.
+//
 // SVG chart primitives live in ./charts.js (line/combo/chart renderers
 // below). Browsers load this as a module so the relative import
 // resolves through the same /lib/v1/ origin as dash.js itself.
@@ -406,6 +414,7 @@ function renderTable(panel, state, ctx) {
     card.appendChild(h);
   }
   const tbl = document.createElement('table');
+  tbl.className = 'bc-tbl';
   const thead = document.createElement('thead');
   const trh = document.createElement('tr');
   (panel.columns || []).forEach((c) => {
