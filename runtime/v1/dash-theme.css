@@ -1124,12 +1124,21 @@ table.bc-tbl.dense thead th { padding: 6px 10px; }
   width: 40px; height: 40px; border-radius: 50%;
   background: var(--bg-2); border: 1px solid var(--rule-strong);
   color: var(--fg-2); cursor: pointer;
-  display: grid; place-items: center;
+  /* padding:0 + line-height:0 kill the UA <button> defaults that
+     would otherwise leave the SVG visually high-and-left of true
+     center. inline-flex with center/center is more predictable than
+     grid+place-items here because the SVG below has display:block. */
+  padding: 0; line-height: 0;
+  display: inline-flex; align-items: center; justify-content: center;
   box-shadow: var(--shadow-2);
   transition: all 0.15s;
 }
 .tweaks-fab:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
-.tweaks-fab svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+.tweaks-fab svg {
+  width: 18px; height: 18px;
+  display: block;         /* drop the inline-baseline lift */
+  stroke: currentColor; fill: none; stroke-width: 1.6;
+}
 .tweaks-fab .kbd {
   position: absolute; right: 48px; top: 50%; transform: translateY(-50%);
   background: var(--bg-3); color: var(--fg-dim);
