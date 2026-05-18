@@ -11,6 +11,10 @@ import { renderTemplate, subscribeAnchor } from './chart-helpers.js';
 export function renderCallouts(panel, state, ctx) {
   const card = makeCard(panel, 'callouts-card');
   card.setAttribute('data-accent', panel.accent || 'primary');
+  // Same hook as `hero` for the tweaks Narrative toggle — callouts
+  // are narrative panels by definition (interpretive prose pinned to
+  // an anchor's rows).
+  card.setAttribute('data-narrative', '');
   const list = document.createElement('div');
   list.className = 'callouts';
   card.appendChild(list);

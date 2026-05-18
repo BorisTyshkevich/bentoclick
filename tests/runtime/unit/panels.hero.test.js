@@ -25,6 +25,10 @@ describe('renderHero', () => {
     expect(el.classList.contains('hero-card')).toBe(true);
     expect(el.getAttribute('data-accent')).toBe('primary');
     expect(el.querySelector('h2').textContent).toBe('Lead');
+    // Narrative tweak hook — tweaks.js flips data-hidden-by-tweak on
+    // every [data-narrative] element when the viewer turns the
+    // Narrative toggle off.
+    expect(el.hasAttribute('data-narrative')).toBe(true);
   });
 
   it('shows waiting message when anchor has no rows', () => {

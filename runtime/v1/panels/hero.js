@@ -12,6 +12,12 @@ export function renderHero(panel, state, ctx) {
   const card = document.createElement('div');
   card.className = 'card hero-card';
   card.setAttribute('data-accent', panel.accent || 'primary');
+  // `data-narrative` is the hook for the tweaks "Narrative" toggle —
+  // when the viewer turns narrative off, `tweaks.js` flips
+  // `data-hidden-by-tweak` on every `[data-narrative]` element and
+  // dash-theme.css collapses them out of layout. Hero panels are
+  // narrative by definition.
+  card.setAttribute('data-narrative', '');
   if (panel.title) {
     const h = document.createElement('h2');
     h.textContent = panel.title;

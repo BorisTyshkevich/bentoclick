@@ -42,6 +42,8 @@ describe('renderCallouts', () => {
     const el = PANELS.callouts({ ...base, rows: 'all' }, state, ctx(stub));
     state.update([]);
     expect(el.querySelectorAll('.callout').length).toBe(3);
+    // Narrative tweak hook — same as hero.
+    expect(el.hasAttribute('data-narrative')).toBe(true);
     expect(el.textContent).toContain('1990');
     expect(el.textContent).toContain('DL');
     expect(el.querySelectorAll('.hl').length).toBe(3); // {{new!}} per row
