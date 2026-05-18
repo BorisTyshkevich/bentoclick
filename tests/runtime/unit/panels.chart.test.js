@@ -128,4 +128,23 @@ describe('renderChart', () => {
       .map((r) => r.getAttribute('height'));
     heights.forEach((h) => expect(h).not.toMatch(/NaN/));
   });
+
+  it('hover crosshair + tooltip fires on vertical-bar mousemove', () => {
+    const state = makeState();
+    const el = PANELS.chart({
+      ...panel, value_label: 'Flights',
+    }, state, ctx());
+    document.body.appendChild(el);
+    state.update([
+      { year: 2000, flights: 100, airline: 'WN' },
+      { year: 2001, flights: 200, airline: 'DL' },
+    ]);
+    const svg = el.querySelector('svg.chart-svg');
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 880, height: 280 });
+    const overlay = el.querySelector('.chart-hover-overlay');
+    overlay.dispatchEvent(new MouseEvent('mousemove', { clientX: 700, clientY: 100 }));
+    const tip = el.querySelector('.chart-tooltip');
+    expect(tip.classList.contains('on')).toBe(true);
+    expect(tip.querySelector('.tt-row .lbl').textContent).toBe('Flights');
+  });
 });

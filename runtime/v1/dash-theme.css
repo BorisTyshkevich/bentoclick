@@ -1269,6 +1269,8 @@ a { color: var(--link); }
    outer .card should not double-pad. Apply this modifier on those
    renderers (e.g. table.js). */
 .card.panel-shell { padding: 0; }
+/* Hover tooltip uses absolute positioning anchored to the panel body. */
+.panel-body { position: relative; }
 .card[data-accent="primary"]   { border-left: 4px solid var(--accent); }
 .card[data-accent="secondary"] { border-left: 4px solid var(--accent-secondary); }
 .card[data-accent="warm"]      { border-left: 4px solid var(--accent-warm); }

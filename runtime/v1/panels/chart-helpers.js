@@ -14,6 +14,7 @@ import {
   linearScale,
   niceTicks,
   annotationLine,
+  svgEl,
 } from '../charts.js';
 
 export function resolveSeries(panel, rows) {
@@ -195,6 +196,136 @@ export function uniquePreserveOrder(values) {
     out.push(s);
   }
   return out;
+}
+
+// installHoverCrosshair — adds a `.chart-hover-line` vertical guide
+// (rendered inside the SVG plot) and a `.chart-tooltip` element in
+// the panel body. mousemove resolves the nearest x band and shows
+// per-series values formatted by each series' `format` callback.
+//
+//   svg, plot, body — the SVG root, the inner `<g>` plot group, and
+//     the surrounding `.panel-body` DOM element (positioned-relative).
+//   opts.xs       — array of x labels (same order as scale domain).
+//   opts.xScale   — band scale mapping label → x in plot coords.
+//   opts.ih, iw   — plot inner dims (height/width inside padding).
+//   opts.pad      — padding object from `svgRoot`.
+//   opts.series   — [{ label, color, get(idx, xLabel), format(v) }].
+//     get(idx, xLabel) returns the series' value at that x position.
+//     Renderers that have one row per x (combo, chart) can pull from
+//     rows[idx]; renderers with pivoted long format (line) can use
+//     idx + xLabel to query their byX index.
+//   opts.xFormat  — optional formatter for the tooltip's x label.
+//
+// Returns `{ destroy() }` so a redraw can remove the prior listeners.
+// `state.update` calls draw() which builds a fresh SVG; old helper
+// instances die with the old SVG (no detach needed). The tooltip
+// is appended to `body`, so it survives redraws — we clean it up
+// only when state.update is called again.
+export function installHoverCrosshair(svg, plot, body, opts) {
+  const { xs, xScale, ih, iw, pad, series, xFormat } = opts;
+  if (!xs.length) return { destroy() {} };
+
+  // Reuse a single tooltip per panel body, so successive redraws
+  // don't pile up stale tooltips.
+  let tip = body.querySelector(':scope > .chart-tooltip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.className = 'chart-tooltip';
+    body.appendChild(tip);
+  }
+
+  // Hover guide line — invisible by default, snaps to the nearest x.
+  const hoverLine = svgEl('line', {
+    x1: 0, x2: 0, y1: 0, y2: ih, class: 'chart-hover-line',
+  });
+  hoverLine.style.opacity = '0';
+  plot.appendChild(hoverLine);
+
+  // Transparent overlay catches mousemove without per-glyph wiring.
+  const overlay = svgEl('rect', {
+    x: 0, y: 0, width: iw, height: ih, fill: 'transparent',
+    class: 'chart-hover-overlay',
+  });
+  overlay.style.cursor = 'crosshair';
+  plot.appendChild(overlay);
+
+  function pointerPlotX(ev) {
+    // Browser path: use the SVG's screen-coords matrix.
+    if (svg.createSVGPoint && svg.getScreenCTM) {
+      try {
+        const pt = svg.createSVGPoint();
+        pt.x = ev.clientX; pt.y = ev.clientY;
+        const ctm = svg.getScreenCTM();
+        if (ctm && typeof ctm.inverse === 'function' && typeof pt.matrixTransform === 'function') {
+          const p = pt.matrixTransform(ctm.inverse());
+          return p.x - (pad ? pad.left : 0);
+        }
+      } catch (_e) { /* fall through to rect-based path */ }
+    }
+    // Fallback: linear-scale clientX → viewBox x via getBoundingClientRect.
+    // Works in happy-dom tests and in environments where SVG transforms
+    // aren't fully implemented.
+    const rect = svg.getBoundingClientRect();
+    if (!rect || !rect.width) return -1;
+    const vb = (svg.viewBox && svg.viewBox.baseVal)
+      ? svg.viewBox.baseVal
+      : { width: iw + (pad ? pad.left + pad.right : 0) };
+    const localX = (ev.clientX - rect.left) * (vb.width / rect.width);
+    return localX - (pad ? pad.left : 0);
+  }
+
+  function nearestIndex(x) {
+    let best = -1, bestDist = Infinity;
+    for (let i = 0; i < xs.length; i++) {
+      const cx = xScale(xs[i]);
+      const d = Math.abs(cx - x);
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+    return best;
+  }
+
+  function show(ev) {
+    const x = pointerPlotX(ev);
+    if (x < 0 || x > iw) return hide();
+    const idx = nearestIndex(x);
+    if (idx < 0) return hide();
+    const cx = xScale(xs[idx]);
+    hoverLine.setAttribute('x1', cx);
+    hoverLine.setAttribute('x2', cx);
+    hoverLine.style.opacity = '1';
+    const xLabel = xFormat ? xFormat(xs[idx]) : String(xs[idx]);
+    tip.innerHTML =
+      '<div class="tt-x">' + fmt.esc(xLabel) + '</div>'
+      + series.map((s) => {
+        const v = s.get(idx, xs[idx]);
+        const text = s.format ? s.format(v) : (v == null ? '' : String(v));
+        return '<div class="tt-row">'
+          + '<span class="sw" style="background:' + fmt.esc(s.color || 'var(--accent)') + '"></span>'
+          + '<span class="lbl">' + fmt.esc(s.label) + '</span>'
+          + '<span class="v">' + fmt.esc(text) + '</span>'
+          + '</div>';
+      }).join('');
+    // Position tooltip over the hover line in panel-body coords.
+    const svgRect = svg.getBoundingClientRect();
+    const bodyRect = body.getBoundingClientRect();
+    // SVG width in CSS pixels; convert viewBox cx (plot-space) to px.
+    const vb = (svg.viewBox && svg.viewBox.baseVal) ? svg.viewBox.baseVal : null;
+    const vbW = vb ? vb.width : (pad ? (iw + pad.left + pad.right) : iw);
+    const vbX = (cx + (pad ? pad.left : 0));
+    const xPx = (vbX / vbW) * svgRect.width;
+    tip.style.left = (svgRect.left - bodyRect.left + xPx) + 'px';
+    tip.style.top  = (svgRect.top  - bodyRect.top) + 'px';
+    tip.classList.add('on');
+  }
+
+  function hide() {
+    hoverLine.style.opacity = '0';
+    tip.classList.remove('on');
+  }
+
+  overlay.addEventListener('mousemove', show);
+  overlay.addEventListener('mouseleave', hide);
+  return { destroy() { overlay.removeEventListener('mousemove', show); overlay.removeEventListener('mouseleave', hide); } };
 }
 
 export function subscribeAnnotations(state, panel, ctx, redraw) {

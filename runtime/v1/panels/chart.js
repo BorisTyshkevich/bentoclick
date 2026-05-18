@@ -31,6 +31,7 @@ import {
   pickXTicks,
   yScaleFromValues,
   drawAnnotations,
+  installHoverCrosshair,
   subscribeAnnotations,
 } from './chart-helpers.js';
 
@@ -111,6 +112,16 @@ export function renderChart(panel, state, ctx) {
     });
     drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
     body.appendChild(root.svg);
+    installHoverCrosshair(root.svg, root.plot, body, {
+      xs: labels, xScale, ih: root.ih, iw: root.iw, pad: root.pad,
+      xFormat: xFmt,
+      series: [{
+        label: panel.value_label || panel.value_key || 'value',
+        color: chartPalette[0],
+        get: (i) => values[i],
+        format: yFmt,
+      }],
+    });
   }
 
   function refreshStamp() {

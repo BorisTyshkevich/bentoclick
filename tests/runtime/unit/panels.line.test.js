@@ -192,6 +192,22 @@ describe('renderLine', () => {
     expect(el.querySelector('.ph-stamp').textContent).toContain('2025');
   });
 
+  it('hover overlay + tooltip fire on mousemove for line panels', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', title: 'L', x_key: 'year', series: [{ key: 'v', label: 'V' }],
+    }, state, ctx());
+    document.body.appendChild(el);
+    state.update([{ year: 2024, v: 1 }, { year: 2025, v: 2 }]);
+    const svg = el.querySelector('svg.chart-svg');
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 880, height: 280 });
+    const overlay = el.querySelector('.chart-hover-overlay');
+    overlay.dispatchEvent(new MouseEvent('mousemove', { clientX: 600, clientY: 100 }));
+    const tip = el.querySelector('.chart-tooltip');
+    expect(tip.classList.contains('on')).toBe(true);
+    expect(tip.querySelector('.tt-row .lbl').textContent).toBe('V');
+  });
+
   it('stamp omits the ·ms suffix when no elapsedMs is known', () => {
     const state = makeState();
     const el = PANELS.line({

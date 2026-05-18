@@ -24,6 +24,7 @@ import {
   drawAnnotations,
   buildLegend,
   uniquePreserveOrder,
+  installHoverCrosshair,
   subscribeAnnotations,
 } from './chart-helpers.js';
 
@@ -99,6 +100,27 @@ export function renderCombo(panel, state, ctx) {
 
     drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
     body.appendChild(root.svg);
+
+    // Hover crosshair + tooltip — surfaces bar value + line value at
+    // the nearest x band on mousemove.
+    installHoverCrosshair(root.svg, root.plot, body, {
+      xs, xScale, ih: root.ih, iw: root.iw, pad: root.pad,
+      xFormat: xFmt,
+      series: [
+        {
+          label: barsCfg.label || String(barsCfg.key),
+          color: barsCfg.color_by ? 'var(--fg-2)' : chartPalette[0],
+          get: (i) => barVals[i],
+          format: lFmt,
+        },
+        {
+          label: lineCfg.label || String(lineCfg.key),
+          color: lineColor,
+          get: (i) => lineVals[i],
+          format: lineUsesRight ? rFmt : lFmt,
+        },
+      ],
+    });
 
     // Legend — when bars.color_by is set, enumerate each unique value
     // with its mapped chart-palette color (matches the design's

@@ -24,6 +24,7 @@ import {
   yScaleFromValues,
   drawAnnotations,
   buildLegend,
+  installHoverCrosshair,
   subscribeAnnotations,
 } from './chart-helpers.js';
 
@@ -83,6 +84,17 @@ export function renderLine(panel, state, ctx) {
     });
     drawAnnotations(root.plot, panel, xScale, root.ih, ctx);
     body.appendChild(root.svg);
+    installHoverCrosshair(root.svg, root.plot, body, {
+      xs, xScale, ih: root.ih, iw: root.iw, pad: root.pad,
+      xFormat: xFmt,
+      series: series.map((s, i) => ({
+        label: s.label || String(s.key),
+        color: colorOf(s, i),
+        // line.js supports pivoted long format → use byX lookup by xLabel.
+        get: (_idx, xLabel) => seriesValueAt(panel, rows, byX, s, xLabel),
+        format: yFmt,
+      })),
+    });
     if (series.length > 1) {
       const items = series.map((s, i) => ({
         kind: 'line',
