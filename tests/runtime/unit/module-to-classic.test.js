@@ -60,6 +60,7 @@ const DASH_BUNDLE = [
   'panels/line.js',
   'panels/combo.js',
   'panels/chart.js',
+  'panels/dataset.js',
   'dash.js',
 ];
 
@@ -90,5 +91,20 @@ describe('moduleToClassic — real runtime bundle', () => {
   it('leaves the runtime\'s `window.DASH = …` assignment intact', () => {
     const bundled = moduleToClassic([cat(CHARTS_BUNDLE), cat(DASH_BUNDLE)].join('\n'));
     expect(bundled).toMatch(/window\.DASH\s*=/);
+  });
+
+  it('executes in a flat scope without ReferenceError — concat order is correct', () => {
+    // new Function(code)() mirrors exactly how the iframe boot runs the bundle:
+    // no ESM resolver, every symbol must be defined before its first use.
+    // A const/let referenced before its definition throws ReferenceError here
+    // but passes the parse-only `new Function(code)` check above.
+    const bundled = moduleToClassic([cat(CHARTS_BUNDLE), cat(DASH_BUNDLE)].join('\n'));
+    expect(() => new Function(bundled)()).not.toThrow();
+    // Verify key symbols are reachable in the flat scope after execution.
+    // new Function scope doesn't get window, so use the return trick instead.
+    const types = new Function(bundled + '\nreturn { renderSpec: typeof renderSpec, PANELS: typeof PANELS, chartPalette: typeof chartPalette }')();
+    expect(types.renderSpec).toBe('function');
+    expect(types.PANELS).toBe('object');
+    expect(types.chartPalette).toBe('object');
   });
 });

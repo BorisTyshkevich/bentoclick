@@ -31,7 +31,24 @@ on the right axis.
 | `x_format`, `y_format_left`, `y_format_right` | formatters |
 | `annotations`  | see [SKILL.md → Annotations](../SKILL.md#annotations) |
 | `on_click`     | see [SKILL.md → Cross-panel filtering](../SKILL.md#cross-panel-filtering) |
-| `accent`, `title`, `empty_text` | as usual |
+| `accent`, `title`, `subtitle`, `empty_text` | `subtitle` renders below the title in `.ph-sub` |
+
+## Interactivity (free, no spec needed)
+
+- **Auto-stamp** in the panel header — shows the x-range (e.g.
+  `1987 – 2025`) plus the query's elapsed time (`· 122 ms`). When
+  `annotations` are set, an `.event-pin` chip in the header shows the
+  count and uses `panel.annotations.label` as the noun (e.g. `3
+  handoffs`).
+- **Per-category legend** — with `bars.color_by` the legend lists
+  each unique category with its mapped color (instead of a single
+  neutral swatch). The line gets a 2px-tall strip swatch.
+- **Hover crosshair + tooltip** — vertical line snaps to the nearest
+  x band; tooltip shows the x label plus both series' formatted
+  values (using their respective left/right axis formatters).
+- **Click-toggle legend** — click a category to fade its swatch
+  (`.item.off`) and hide all bars in that category; click the line
+  item to hide the line + dots. Click again to restore.
 
 ## Edges
 

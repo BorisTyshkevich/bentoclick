@@ -46,19 +46,36 @@ describe('renderChart', () => {
     expect(bars[0].getAttribute('fill')).not.toBe(bars[1].getAttribute('fill'));
   });
 
-  it('renders horizontal bars when orientation=horizontal', () => {
+  it('renders horizontal bars as the design .bc-bars HTML rail', () => {
     const state = makeState();
     const el = PANELS.chart({ ...panel, orientation: 'horizontal' }, state, ctx());
     state.update([
       { year: 2000, flights: 100, airline: 'WN' },
       { year: 2001, flights: 200, airline: 'DL' },
     ]);
-    const bars = el.querySelectorAll('rect.chart-bar');
-    expect(bars.length).toBe(2);
-    // Horizontal: x=0, width scales with value. Higher value → wider bar.
-    const w0 = Number(bars[0].getAttribute('width'));
-    const w1 = Number(bars[1].getAttribute('width'));
+    // No SVG bars for the horizontal layout — that's the chunky look
+    // we replaced. Should be HTML .bc-bars / .row-b / .track / .fill / .val.
+    expect(el.querySelectorAll('rect.chart-bar').length).toBe(0);
+    const rows = el.querySelectorAll('.bc-bars > .row-b');
+    expect(rows.length).toBe(2);
+    expect(rows[0].querySelector('.lbl').textContent).toBe('2000');
+    expect(rows[0].querySelector('.track > .fill')).toBeTruthy();
+    expect(rows[0].querySelector('.val').textContent).toBe('100');
+    // Higher value → wider fill.
+    const w0 = parseFloat(rows[0].querySelector('.fill').style.width);
+    const w1 = parseFloat(rows[1].querySelector('.fill').style.width);
     expect(w1).toBeGreaterThan(w0);
+  });
+
+  it('horizontal + color_by → data-multi + per-row --c set', () => {
+    const state = makeState();
+    const el = PANELS.chart(
+      { ...panel, orientation: 'horizontal', color_by: 'airline' },
+      state, ctx(),
+    );
+    state.update([{ year: 2000, flights: 100, airline: 'WN' }]);
+    expect(el.querySelector('.bc-bars').hasAttribute('data-multi')).toBe(true);
+    expect(el.querySelector('.fill').getAttribute('style')).toMatch(/--c: ?#/);
   });
 
   it('shows empty_text on no rows', () => {
@@ -110,5 +127,24 @@ describe('renderChart', () => {
     const heights = Array.from(el.querySelectorAll('rect.chart-bar'))
       .map((r) => r.getAttribute('height'));
     heights.forEach((h) => expect(h).not.toMatch(/NaN/));
+  });
+
+  it('hover crosshair + tooltip fires on vertical-bar mousemove', () => {
+    const state = makeState();
+    const el = PANELS.chart({
+      ...panel, value_label: 'Flights',
+    }, state, ctx());
+    document.body.appendChild(el);
+    state.update([
+      { year: 2000, flights: 100, airline: 'WN' },
+      { year: 2001, flights: 200, airline: 'DL' },
+    ]);
+    const svg = el.querySelector('svg.chart-svg');
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 880, height: 280 });
+    const overlay = el.querySelector('.chart-hover-overlay');
+    overlay.dispatchEvent(new MouseEvent('mousemove', { clientX: 700, clientY: 100 }));
+    const tip = el.querySelector('.chart-tooltip');
+    expect(tip.classList.contains('on')).toBe(true);
+    expect(tip.querySelector('.tt-row .lbl').textContent).toBe('Flights');
   });
 });

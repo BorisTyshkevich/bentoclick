@@ -1,0 +1,75 @@
+{
+  "title": "Chronically unrealistic flights",
+  "subtitle": "Two `dataset` panels feed the rest of the board. Visual panels read rows via `source` + `transform` so the heavy CTE chain executes twice, not seven times. Requires the `ontime.fact_ontime` table.",
+  "spec_version": 1,
+  "concurrent": true,
+  "params": [
+    { "name": "from_year", "type": "int", "min": 1987, "max": 2025, "default": 2018, "label": "From year" },
+    { "name": "to_year",   "type": "int", "min": 1987, "max": 2025, "default": 2025, "label": "To year" },
+    { "name": "min_delay", "type": "int", "min": 15,   "max": 240,  "default": 60,   "label": "Min delay (min)" }
+  ],
+  "panels": [
+    {
+      "id": "scored_combinations",
+      "type": "dataset",
+      "title": "Scored carrier/route combinations (raw)",
+      "query": "WITH base AS (SELECT Reporting_Airline AS carrier, concat(Origin, '→', Dest) AS route, FlightDate AS d, ArrDelayMinutes AS delay FROM ontime.fact_ontime WHERE Cancelled = 0 AND Year BETWEEN {{from_year}} AND {{to_year}} AND ArrDelayMinutes >= {{min_delay}}), scored AS (SELECT carrier, route, count() AS late_flights, avg(delay) AS avg_delay, quantile(0.9)(delay) AS p90_delay FROM base GROUP BY carrier, route HAVING late_flights >= 20) SELECT carrier, route, late_flights, avg_delay, p90_delay FROM scored ORDER BY late_flights DESC LIMIT 200"
+    },
+    {
+      "id": "flagged_monthly",
+      "type": "dataset",
+      "title": "Monthly flagged share (raw)",
+      "query": "WITH per_month AS (SELECT toStartOfMonth(FlightDate) AS month, countIf(ArrDelayMinutes >= {{min_delay}}) AS flagged, count() AS total FROM ontime.fact_ontime WHERE Cancelled = 0 AND Year BETWEEN {{from_year}} AND {{to_year}} GROUP BY month) SELECT toString(month) AS month, flagged, total, flagged / total AS flagged_share FROM per_month ORDER BY month"
+    },
+    {
+      "id": "top_carriers",
+      "type": "kpi-strip",
+      "width": 12,
+      "source": "scored_combinations",
+      "transform": "const byCarrier = new Map();\nrows.forEach(r => {\n  const v = byCarrier.get(r.carrier) || { carrier: r.carrier, late: 0 };\n  v.late += r.late_flights;\n  byCarrier.set(r.carrier, v);\n});\nconst sorted = [...byCarrier.values()].sort((a, b) => b.late - a.late);\nreturn [{ top1: sorted[0]?.carrier || '—', top1_late: sorted[0]?.late || 0, total_carriers: byCarrier.size }];",
+      "tiles": [
+        { "key": "top1",           "label": "Worst carrier" },
+        { "key": "top1_late",      "label": "Their late flights", "format": "num" },
+        { "key": "total_carriers", "label": "Carriers flagged",   "format": "num" }
+      ]
+    },
+    {
+      "id": "worst_routes",
+      "type": "table",
+      "width": 6,
+      "title": "Top late routes",
+      "source": "scored_combinations",
+      "transform": "return rows.slice(0, 15);",
+      "collapsible": true,
+      "columns": [
+        { "key": "carrier",      "label": "Carrier" },
+        { "key": "route",        "label": "Route" },
+        { "key": "late_flights", "label": "Late",     "format": "num", "align": "right" },
+        { "key": "avg_delay",    "label": "Avg delay","format": "num", "align": "right" },
+        { "key": "p90_delay",    "label": "p90",      "format": "num", "align": "right" }
+      ]
+    },
+    {
+      "id": "worst_carriers",
+      "type": "bars",
+      "width": 6,
+      "title": "Worst carriers by late flights",
+      "source": "scored_combinations",
+      "transform": "const byCarrier = new Map();\nrows.forEach(r => {\n  const v = byCarrier.get(r.carrier) || 0;\n  byCarrier.set(r.carrier, v + r.late_flights);\n});\nreturn [...byCarrier.entries()].map(([carrier, late]) => ({ carrier, late })).sort((a, b) => b.late - a.late).slice(0, 10);",
+      "x_key": "carrier",
+      "y_key": "late",
+      "y_format": "num"
+    },
+    {
+      "id": "monthly_share",
+      "type": "line",
+      "width": 12,
+      "title": "Monthly share of flights with delays at or above the threshold",
+      "source": "flagged_monthly",
+      "transform": "return rows;",
+      "x_key": "month",
+      "y_key": "flagged_share",
+      "y_format": "pct"
+    }
+  ]
+}

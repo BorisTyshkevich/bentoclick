@@ -84,6 +84,13 @@ describe('renderLine', () => {
       { year: 2021, k: 'b', v: 4 },
     ]);
     expect(el.querySelectorAll('path.chart-line').length).toBe(2);
+    // Multi-series triggers the legend, each item rendered with the
+    // 2px line-swatch variant (.sw.line).
+    const items = el.querySelectorAll('.chart-legend .item');
+    expect(items.length).toBe(2);
+    items.forEach((it) => {
+      expect(it.querySelector('.sw').classList.contains('line')).toBe(true);
+    });
   });
 
   it('draws annotations when source panel has rows', () => {
@@ -145,5 +152,68 @@ describe('renderLine', () => {
     const labels = el.querySelectorAll('.chart-axis-x .chart-tick-label');
     // Decimation cap is 8 visible ticks.
     expect(labels.length).toBeLessThanOrEqual(8);
+  });
+
+  it('wraps the SVG in panel-shell + panel-head + panel-body, with auto stamp', () => {
+    const state = makeState();
+    state.elapsedMs = 73;
+    const el = PANELS.line({
+      type: 'line', title: 'L', subtitle: 'sub', x_key: 'year', series: [{ key: 'v' }],
+    }, state, ctx());
+    expect(el.classList.contains('panel-shell')).toBe(true);
+    expect(el.querySelector('.panel-head .ph-title').textContent).toBe('L');
+    expect(el.querySelector('.panel-head .ph-sub').textContent).toBe('sub');
+    state.update([{ year: 1987, v: 1 }, { year: 1990, v: 2 }, { year: 2025, v: 3 }]);
+    expect(el.querySelector('.ph-stamp').textContent).toBe('1987 – 2025 · 73 ms');
+    // Single-x case collapses to a single value, not a range.
+    state.update([{ year: 2020, v: 5 }]);
+    expect(el.querySelector('.ph-stamp').textContent).toBe('2020 · 73 ms');
+  });
+
+  it('multi-series legend falls back to key when series has no label', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', x_key: 'year',
+      series: [{ key: 'a' }, { key: 'b' }],
+    }, state, ctx());
+    state.update([{ year: 2024, a: 1, b: 2 }]);
+    const labels = Array.from(el.querySelectorAll('.chart-legend .item'))
+      .map((it) => it.textContent);
+    expect(labels).toEqual(['a', 'b']);
+  });
+
+  it('stamp handles null x values without throwing', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', title: 'L', x_key: 'year', series: [{ key: 'v' }],
+    }, state, ctx());
+    state.update([{ year: null, v: 1 }, { year: 2025, v: 2 }]);
+    // First x is null → coerces to empty string; last is 2025.
+    expect(el.querySelector('.ph-stamp').textContent).toContain('2025');
+  });
+
+  it('hover overlay + tooltip fire on mousemove for line panels', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', title: 'L', x_key: 'year', series: [{ key: 'v', label: 'V' }],
+    }, state, ctx());
+    document.body.appendChild(el);
+    state.update([{ year: 2024, v: 1 }, { year: 2025, v: 2 }]);
+    const svg = el.querySelector('svg.chart-svg');
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 880, height: 280 });
+    const overlay = el.querySelector('.chart-hover-overlay');
+    overlay.dispatchEvent(new MouseEvent('mousemove', { clientX: 600, clientY: 100 }));
+    const tip = el.querySelector('.chart-tooltip');
+    expect(tip.classList.contains('on')).toBe(true);
+    expect(tip.querySelector('.tt-row .lbl').textContent).toBe('V');
+  });
+
+  it('stamp omits the ·ms suffix when no elapsedMs is known', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', title: 'L', x_key: 'year', series: [{ key: 'v' }],
+    }, state, ctx());
+    state.update([{ year: 2024, v: 1 }, { year: 2025, v: 2 }]);
+    expect(el.querySelector('.ph-stamp').textContent).toBe('2024 – 2025');
   });
 });

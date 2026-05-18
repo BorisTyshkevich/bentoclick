@@ -1265,6 +1265,12 @@ a { color: var(--link); }
   padding: var(--sp-5) var(--sp-6);
   margin-bottom: var(--sp-4);
 }
+/* When a renderer lays out its own .panel-head + .panel-body the
+   outer .card should not double-pad. Apply this modifier on those
+   renderers (e.g. table.js). */
+.card.panel-shell { padding: 0; }
+/* Hover tooltip uses absolute positioning anchored to the panel body. */
+.panel-body { position: relative; }
 .card[data-accent="primary"]   { border-left: 4px solid var(--accent); }
 .card[data-accent="secondary"] { border-left: 4px solid var(--accent-secondary); }
 .card[data-accent="warm"]      { border-left: 4px solid var(--accent-warm); }
@@ -1348,6 +1354,95 @@ tr.selected-row {
   background: var(--tint-accent);
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+/* Panel state enum — visible|collapsed|hidden, set by applyPanelState
+   on the panel card. Hidden removes the card from layout. Partial
+   collapse (title + preview + reveal CTA) is implemented by
+   `.panel-collapsible.collapsed` (see "Collapsible long panels"
+   below) — both `dataset` and visual panels use that mechanism, so
+   the `data-state` attribute is purely informational for collapsed. */
+.card[data-state="hidden"] { display: none; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Collapsible long panels — table.js / bars.js install this when
+   rows.length ≥ 50 or `panel.collapsible: true`. Ported from the
+   design's panels.css COLLAPSIBLE PANELS block; selectors retargeted
+   from `.panel-head .ph-collapse` to `.card.panel-collapsible
+   .ph-collapse` because our cards expose `<h2>` directly instead of
+   a `.panel-head` wrapper.
+   ═══════════════════════════════════════════════════════════════════ */
+.card.panel-collapsible { position: relative; }
+.card.panel-collapsible .tbl-wrap,
+.card.panel-collapsible .bc-rank,
+.card.panel-collapsible .bc-bars {
+  transition: max-height 0.25s ease;
+}
+.card.panel-collapsible.collapsed .tbl-wrap,
+.card.panel-collapsible.collapsed .bc-rank,
+.card.panel-collapsible.collapsed .bc-bars {
+  max-height: 280px;
+  overflow: hidden;
+  position: relative;
+}
+.card.panel-collapsible.collapsed .tbl-wrap::after,
+.card.panel-collapsible.collapsed .bc-rank::after,
+.card.panel-collapsible.collapsed .bc-bars::after {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: 0; height: 80px;
+  background: linear-gradient(to bottom, transparent, var(--bg-2));
+  pointer-events: none;
+}
+.panel-toggle {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; padding: 11px 14px;
+  background: transparent; border: 0;
+  border-top: 1px solid var(--rule-soft);
+  color: var(--accent); font-family: var(--font-sans);
+  font-size: 12px; font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+  letter-spacing: 0.1px;
+}
+.panel-toggle:hover { background: rgba(45, 212, 191, 0.05); }
+.panel-toggle .when-expanded,
+.panel-toggle .when-collapsed { display: none; align-items: center; gap: 6px; }
+.card.panel-collapsible.collapsed .panel-toggle .when-collapsed { display: inline-flex; }
+.card.panel-collapsible:not(.collapsed) .panel-toggle .when-expanded { display: inline-flex; }
+.panel-toggle svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; transition: transform 0.2s; }
+
+.card.panel-collapsible .ph-collapse {
+  background: transparent; border: 1px solid var(--rule);
+  color: var(--fg-dim); cursor: pointer;
+  width: 24px; height: 24px; border-radius: var(--r-sm);
+  display: grid; place-items: center;
+  transition: all 0.12s;
+}
+/* When the chevron is a direct child of the card (no panel-head) it
+   floats top-right; when it lives inside .panel-head .ph-meta the
+   default in-flow positioning is correct. */
+.card.panel-collapsible > .ph-collapse {
+  position: absolute; top: 14px; right: 14px;
+}
+.card.panel-collapsible .ph-collapse:hover { color: var(--fg); border-color: var(--rule-strong); }
+.card.panel-collapsible .ph-collapse svg {
+  width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-width: 2;
+  transition: transform 0.2s;
+}
+.card.panel-collapsible.collapsed .ph-collapse svg { transform: rotate(-90deg); }
+.card.panel-collapsible:not(.collapsed) .ph-collapse svg { transform: rotate(0); }
+
+/* When collapsed, the inline filter strip / footer actions stay anchored. */
+.card.panel-collapsible.collapsed .table-actions { display: none; }
+.card.panel-collapsible:not(.collapsed) .table-actions { display: flex; }
+
+/* Row-count chip shown in the toggle */
+.panel-toggle .row-count {
+  font-family: var(--font-mono); font-weight: 500;
+  color: var(--fg-dim);
+  background: var(--bg-3);
+  padding: 1px 7px; border-radius: var(--r-pill);
+  font-size: 10px; margin-left: 4px;
 }
 
 /* Narrow viewport */

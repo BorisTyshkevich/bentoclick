@@ -68,6 +68,8 @@ import { renderScript }   from './panels/script.js';
 import { renderLine }     from './panels/line.js';
 import { renderCombo }    from './panels/combo.js';
 import { renderChart }    from './panels/chart.js';
+import { renderDataset }  from './panels/dataset.js';
+import { applyPanelState } from './panels/_shared.js';
 
 export {
   renderKpiStrip,
@@ -81,6 +83,8 @@ export {
   renderLine,
   renderCombo,
   renderChart,
+  renderDataset,
+  applyPanelState,
 };
 
 export const PANELS = {
@@ -95,6 +99,7 @@ export const PANELS = {
   'line':      renderLine,
   'combo':     renderCombo,
   'chart':     renderChart,
+  'dataset':   renderDataset,
 };
 
 
@@ -193,7 +198,9 @@ export function renderPanelShell(panel, state, ctx) {
     state.update = function () {};
     return err;
   }
-  return renderer(panel, state, ctx);
+  const el = renderer(panel, state, ctx);
+  applyPanelState(el, panel);
+  return el;
 }
 
 // ============================================================
@@ -203,9 +210,17 @@ export function makeDashFetch(api, chFetch, ledger) {
   return async function dashFetch(id, label, sql) {
     if (!ledger._items()[id]) ledger.add(id, label, 'primary');
     ledger.up(id, 'Pending', '—', sql);
+    const t0 = (typeof performance !== 'undefined' && performance.now)
+      ? performance.now() : Date.now();
     try {
       const r = await chFetch(sql);
-      ledger.up(id, 'OK', r.count);
+      const dt = Math.round(((typeof performance !== 'undefined' && performance.now)
+        ? performance.now() : Date.now()) - t0);
+      // `elapsedMs` is the wall-clock round-trip we just observed.
+      // Panel renderers read it from the ledger to populate `.ph-stamp`
+      // (e.g. `1987 – 2025 · 122 ms`).
+      r.elapsedMs = dt;
+      ledger.up(id, 'OK', r.count, undefined, dt);
       return r;
     } catch (e) {
       if (e && e.message === 'Auth expired') throw e;
@@ -318,8 +333,9 @@ export class SpecRuntime {
 
     const states = (spec.panels || []).map((panel, idx) => {
       const id = panel.id || ('p' + idx);
-      const state = { id, panel, rows: [], update: () => {} };
+      const state = { id, panel, idx, rows: [], update: () => {} };
       state.refresh = () => self._runPanel(panel, state);
+      installLoadedDeferred(state);
       self.panels[id] = state;
       return state;
     });
@@ -358,50 +374,157 @@ export class SpecRuntime {
   }
 
   async _runPanel(panel, state) {
-    if (!panel.query) {
-      try { state.update([]); } catch (_e) { /* renderer error */ }
-      return;
-    }
     state._epoch = (state._epoch || 0) + 1;
     const myEpoch = state._epoch;
+    // Source-backed branch — waits on the source panel's _loaded
+    // promise, then (optionally) reshapes rows via panel.transform.
+    if (panel.source) {
+      if (panel.query) {
+        state._showError('panel cannot set both "query" and "source"');
+        resolveLoaded(state);
+        return;
+      }
+      const src = this.panels[panel.source];
+      if (!src) {
+        state._showError('unknown source: ' + panel.source);
+        resolveLoaded(state);
+        return;
+      }
+      if (src.idx >= state.idx) {
+        state._showError('source "' + panel.source + '" must be declared before consumer');
+        resolveLoaded(state);
+        return;
+      }
+      try {
+        await src._loaded;
+      } catch (_e) { /* unreachable: _loaded never rejects */ }
+      if (state._epoch !== myEpoch) return;
+      let rows = src.rows || [];
+      if (panel.transform) {
+        try {
+          rows = runTransform(panel.transform, rows, this.params);
+        } catch (e) {
+          state._showError((e && e.message) || String(e));
+          resolveLoaded(state);
+          return;
+        }
+      }
+      try {
+        state.rows = rows;
+        state.update(rows);
+        this._emit('panel:loaded', { id: state.id, rows });
+      } catch (_e) { /* renderer error */ }
+      resolveLoaded(state);
+      return;
+    }
+    if (!panel.query) {
+      try { state.update([]); } catch (_e) { /* renderer error */ }
+      resolveLoaded(state);
+      return;
+    }
     let sql;
     try {
       sql = this._interp(panel.query);
     } catch (e) {
       state._showError(e.message);
+      resolveLoaded(state);
       return;
     }
     try {
       const r = await this._ctx.fetch(state.id, panel.title || state.id, sql);
       if (state._epoch !== myEpoch) return;
       state.rows = r.rows;
+      if (typeof r.elapsedMs === 'number') state.elapsedMs = r.elapsedMs;
       state.update(r.rows);
       this._emit('panel:loaded', { id: state.id, rows: r.rows });
+      resolveLoaded(state);
     } catch (e) {
-      if (e && e.message === 'Auth expired') return;
+      if (e && e.message === 'Auth expired') {
+        resolveLoaded(state);
+        return;
+      }
       if (state._epoch !== myEpoch) return;
       state._showError((e && e.message) || String(e));
+      resolveLoaded(state);
     }
   }
 
   _rerun(changedName) {
     const self = this;
-    const affected = (self._spec.panels || []).filter((p) => {
-      if (!changedName) return true;
-      if (!p.query) return false;
-      return p.query.indexOf('{{' + changedName + '}}') >= 0
-        || p.query.indexOf('{{ ' + changedName) >= 0;
+    const panels = self._spec.panels || [];
+    const directlyAffected = new Set();
+    panels.forEach((p) => {
+      if (!changedName) { directlyAffected.add(p); return; }
+      if (!p.query) return;
+      if (p.query.indexOf('{{' + changedName + '}}') >= 0
+        || p.query.indexOf('{{ ' + changedName) >= 0) {
+        directlyAffected.add(p);
+      }
     });
+    // Closure over source edges: any consumer whose source is in the
+    // affected set joins it. Linear sweep is fine — panels are
+    // declared in dependency order (source before consumer).
+    let grew = true;
+    while (grew) {
+      grew = false;
+      panels.forEach((p) => {
+        if (directlyAffected.has(p)) return;
+        if (!p.source) return;
+        const src = self.panels[p.source];
+        if (src && directlyAffected.has(src.panel)) {
+          directlyAffected.add(p);
+          grew = true;
+        }
+      });
+    }
     self._emit('params', {
       changed: changedName,
       params: Object.assign({}, self.params),
     });
-    affected.forEach((p) => {
-      const id = p.id || ('p' + (self._spec.panels || []).indexOf(p));
+    // Reset _loaded deferreds before kicking off the re-runs so any
+    // consumer that already awaited the prior promise sees a fresh one.
+    directlyAffected.forEach((p) => {
+      const id = p.id || ('p' + panels.indexOf(p));
+      const st = self.panels[id];
+      if (st) installLoadedDeferred(st);
+    });
+    directlyAffected.forEach((p) => {
+      const id = p.id || ('p' + panels.indexOf(p));
       const st = self.panels[id];
       self._runPanel(p, st);
     });
   }
+}
+
+// Per-state load deferred — every state has one, recreated on each
+// re-run. Source consumers `await src._loaded` to serialize behind
+// the source panel's first successful (or failed) settle.
+function installLoadedDeferred(state) {
+  state._loaded = new Promise((resolve) => { state._loadedResolve = resolve; });
+}
+function resolveLoaded(state) {
+  if (state._loadedResolve) {
+    state._loadedResolve();
+    state._loadedResolve = null;
+  }
+}
+
+// runTransform — executes a user-authored JS function body that maps
+// `rows` (frozen, deep) to a new array. The function runs in global
+// scope via `new Function`, so closures over `DASH` / `ctx` / `this`
+// are not available. Sync only; async transforms are out of scope.
+export function runTransform(body, rows, params) {
+  const fn = new Function('rows', 'params', '"use strict";\n' + String(body));
+  const frozenRows = Object.freeze((rows || []).map((r) => {
+    if (r && typeof r === 'object') return Object.freeze(Object.assign({}, r));
+    return r;
+  }));
+  const frozenParams = Object.freeze(Object.assign({}, params || {}));
+  const out = fn(frozenRows, frozenParams);
+  if (!Array.isArray(out)) {
+    throw new Error('transform must return an array, got ' + (out === null ? 'null' : typeof out));
+  }
+  return out;
 }
 
 function attachErrorHelper(state, panel) {

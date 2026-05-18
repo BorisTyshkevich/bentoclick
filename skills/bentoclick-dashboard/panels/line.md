@@ -41,7 +41,19 @@ Long-format pivot:
 | `annotations` | see [SKILL.md → Annotations](../SKILL.md#annotations) |
 | `on_click`    | see [SKILL.md → Cross-panel filtering](../SKILL.md#cross-panel-filtering) |
 | `accent`      | left-border accent (`primary` / `secondary` / `warm` / `rose`) |
-| `title`, `empty_text` | as usual |
+| `title`, `subtitle`, `empty_text` | `subtitle` renders as the `.ph-sub` line under the title |
+
+## Interactivity (free, no spec needed)
+
+- **Auto-stamp** in the panel header — shows the x-range (e.g.
+  `1987 – 2025`) plus the query's elapsed time from the ledger
+  (`· 122 ms`).
+- **Hover crosshair + tooltip** — mouse over the chart snaps a dashed
+  vertical line to the nearest x; the tooltip lists the x label and
+  each series' formatted value.
+- **Click-toggle legend** — when multiple series render, clicking a
+  legend item fades it (`.item.off`) and hides that series' path +
+  dots. Click again to restore.
 
 ## Edges
 

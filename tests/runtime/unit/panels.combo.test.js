@@ -71,14 +71,36 @@ describe('renderCombo', () => {
     expect(el.querySelector('.chart-axis-right')).not.toBeNull();
   });
 
-  it('emits a legend when bars/line have labels', () => {
+  it('with bars.color_by, legend enumerates each unique category', () => {
     const state = makeState();
     const el = PANELS.combo(basic, state, ctx());
-    state.update([{ year: 2000, flights: 1, margin: 1, who: 'WN' }]);
+    state.update([
+      { year: 2000, flights: 1, margin: 1, who: 'WN' },
+      { year: 2001, flights: 2, margin: 1, who: 'DL' },
+      { year: 2002, flights: 1, margin: 1, who: 'WN' },
+    ]);
     const legend = el.querySelector('.chart-legend');
     expect(legend).not.toBeNull();
-    expect(legend.textContent).toContain('Flights');
-    expect(legend.textContent).toContain('Margin');
+    const items = legend.querySelectorAll('.item');
+    // Two unique bar categories + the line series.
+    expect(items.length).toBe(3);
+    expect(items[0].textContent).toBe('WN');
+    expect(items[1].textContent).toBe('DL');
+    expect(items[2].textContent).toContain('Margin');
+    // Line gets the 2px-strip swatch variant; bars get the square swatch.
+    expect(items[0].querySelector('.sw').classList.contains('line')).toBe(false);
+    expect(items[2].querySelector('.sw').classList.contains('line')).toBe(true);
+  });
+
+  it('without bars.color_by, legend collapses to a single bar-series swatch', () => {
+    const state = makeState();
+    const noColor = { ...basic, bars: { key: 'flights', label: 'Flights' } };
+    const el = PANELS.combo(noColor, state, ctx());
+    state.update([{ year: 2000, flights: 1, margin: 1 }]);
+    const items = el.querySelectorAll('.chart-legend .item');
+    expect(items.length).toBe(2);
+    expect(items[0].textContent).toBe('Flights');
+    expect(items[1].textContent).toContain('Margin');
   });
 
   it('falls back to the palette default when bars.color_by is absent', () => {
@@ -103,6 +125,72 @@ describe('renderCombo', () => {
     ]);
     const d = el.querySelector('path.chart-line').getAttribute('d');
     expect(d).not.toMatch(/NaN/);
+  });
+
+  it('hover handle.destroy() is callable + empty rows short-circuits the install', async () => {
+    // Empty-rows path returns a no-op destroy() — exercise it directly.
+    const helpers = await import('../../../runtime/v1/panels/chart-helpers.js');
+    const h = helpers.installHoverCrosshair(
+      { getBoundingClientRect: () => ({ left:0, top:0, width:0, height:0 }) },
+      document.createElement('div'), document.createElement('div'),
+      { xs: [], xScale: () => 0, ih: 0, iw: 0, series: [] },
+    );
+    expect(typeof h.destroy).toBe('function');
+    expect(() => h.destroy()).not.toThrow();
+  });
+
+  it('hover crosshair + tooltip show on mousemove, hide on mouseleave', () => {
+    const state = makeState();
+    const el = PANELS.combo(basic, state, ctx());
+    document.body.appendChild(el);
+    state.update([
+      { year: 2000, flights: 100, margin: 10, who: 'WN' },
+      { year: 2001, flights: 110, margin: 20, who: 'DL' },
+      { year: 2002, flights: 90,  margin: 5,  who: 'WN' },
+    ]);
+    // Overlay + hover line exist post-render.
+    const overlay = el.querySelector('rect.chart-hover-overlay');
+    const hoverLine = el.querySelector('line.chart-hover-line');
+    const tip = el.querySelector('.chart-tooltip');
+    expect(overlay).not.toBeNull();
+    expect(hoverLine).not.toBeNull();
+    expect(tip).not.toBeNull();
+    expect(tip.classList.contains('on')).toBe(false);
+    // Stub getBoundingClientRect on the svg so the fallback x conversion
+    // resolves; happy-dom returns zeros without this.
+    const svg = el.querySelector('svg.chart-svg');
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 880, height: 300 });
+    overlay.dispatchEvent(new MouseEvent('mousemove', { clientX: 400, clientY: 100 }));
+    expect(tip.classList.contains('on')).toBe(true);
+    // Tooltip renders the x label and both series formatted values.
+    expect(tip.querySelector('.tt-x')).not.toBeNull();
+    expect(tip.querySelectorAll('.tt-row').length).toBe(2);
+    overlay.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(tip.classList.contains('on')).toBe(false);
+  });
+
+  it('clicking a legend item fades it and hides matching SVG elements', () => {
+    const state = makeState();
+    const el = PANELS.combo(basic, state, ctx());
+    state.update([
+      { year: 2000, flights: 1, margin: 1, who: 'WN' },
+      { year: 2001, flights: 2, margin: 1, who: 'DL' },
+      { year: 2002, flights: 3, margin: 1, who: 'WN' },
+    ]);
+    const wnItem = el.querySelector('.chart-legend .item[data-legend-key="bar:WN"]');
+    expect(wnItem).not.toBeNull();
+    // 2 WN bars + 1 DL bar present initially.
+    expect(el.querySelectorAll('[data-legend-key="bar:WN"]').length).toBe(3); // 2 rects + 1 legend item
+    wnItem.click();
+    expect(wnItem.classList.contains('off')).toBe(true);
+    // Bars matching bar:WN are display:none; the legend item itself is not hidden.
+    const wnBars = Array.from(el.querySelectorAll('rect[data-legend-key="bar:WN"]'));
+    wnBars.forEach((b) => expect(b.style.display).toBe('none'));
+    expect(wnItem.style.display).toBe('');
+    // Click again restores.
+    wnItem.click();
+    expect(wnItem.classList.contains('off')).toBe(false);
+    wnBars.forEach((b) => expect(b.style.display).toBe(''));
   });
 
   it('overlays annotations from a sibling panel', () => {
