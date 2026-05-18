@@ -17,6 +17,13 @@
 <meta http-equiv="cache-control" content="no-store">
 <title>Dashboards</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%231a1a2e'/><path d='M16 44 V22 h5 v22z M27 44 V30 h5 v14z M38 44 V16 h5 v28z M49 44 V24 h5 v20z' fill='%2300d4aa'/></svg>">
+<!-- Theme tokens + .tweaks-fab/.tweaks styling. Loaded at the parent
+     shell because the tweaks panel mounts here (outside the
+     dashboard iframe) — without it the gear SVG renders at its
+     intrinsic ~150px size and the panel is naked HTML. Linked
+     BEFORE the inline <style> below so the spa.html shell's
+     legacy body bg/color rules win the cascade. -->
+<link rel="stylesheet" href="/lib/v1/dash-theme.css">
 <style>
   html,body{margin:0;padding:0;height:100%;font-family:system-ui,-apple-system,sans-serif;background:#1a1a2e;color:#e0e0e0}
   #status{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;max-width:80%}
