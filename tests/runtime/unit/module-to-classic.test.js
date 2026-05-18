@@ -10,6 +10,13 @@
 // the original strip-export pass and crashed the iframe boot with
 // SyntaxError — that's the regression this file pins.
 //
+// After the runtime split, the production "bundle" is the topological
+// concat that install.sh produces (core/*.js + panels/*.js + dash.js
+// for the dash bundle; charts/*.js + charts.js for charts). This test
+// assembles the same order and confirms moduleToClassic still yields
+// a parseable, self-contained classic script with the window.DASH
+// assignment intact.
+//
 // Unit-level coverage for moduleToClassic itself lives in
 // spa.helpers.test.js (the helper now exports from spa-helpers.js).
 
@@ -22,19 +29,66 @@ import { moduleToClassic } from '../../../runtime/v1/spa-helpers.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const runtimeDir = join(here, '../../../runtime/v1');
 
-const chartsSrc = readFileSync(join(runtimeDir, 'charts.js'),  'utf8');
-const dashSrc   = readFileSync(join(runtimeDir, 'dash.js'),    'utf8');
+// Topological order must match install.sh's bundle_concat invocations.
+// Keep this list in sync with the install.sh bundler — a missing file
+// here means the bundle is shipping less than tests cover.
+const CHARTS_BUNDLE = [
+  'charts/palette.js',
+  'charts/scales.js',
+  'charts/svg.js',
+  'charts.js',
+];
+
+const DASH_BUNDLE = [
+  'core/fmt.js',
+  'core/interpolate.js',
+  'core/run-state.js',
+  'core/markdown.js',
+  'core/ledger.js',
+  'core/badge.js',
+  'core/csv.js',
+  'panels/_shared.js',
+  'panels/chart-helpers.js',
+  'panels/kpi-strip.js',
+  'panels/table.js',
+  'panels/bars.js',
+  'panels/markdown.js',
+  'panels/hero.js',
+  'panels/callouts.js',
+  'panels/html.js',
+  'panels/script.js',
+  'panels/line.js',
+  'panels/combo.js',
+  'panels/chart.js',
+  'dash.js',
+];
+
+function cat(files) {
+  return files.map((f) => readFileSync(join(runtimeDir, f), 'utf8')).join('\n');
+}
 
 describe('moduleToClassic — real runtime bundle', () => {
-  it('produces parseable classic script for charts.js + dash.js', () => {
-    const bundled = moduleToClassic([chartsSrc, dashSrc].join('\n'));
+  it('produces parseable classic script for charts + dash bundle', () => {
+    const bundled = moduleToClassic([cat(CHARTS_BUNDLE), cat(DASH_BUNDLE)].join('\n'));
     expect(bundled).not.toMatch(/^import\b/m);
     expect(bundled).not.toMatch(/^export\b/m);
     expect(() => new Function(bundled)).not.toThrow();
   });
 
-  it('leaves the runtime`s `window.DASH = …` assignment intact', () => {
-    const bundled = moduleToClassic([chartsSrc, dashSrc].join('\n'));
+  it('exposes the panel renderers + chart primitives in the bundled scope', () => {
+    const bundled = moduleToClassic([cat(CHARTS_BUNDLE), cat(DASH_BUNDLE)].join('\n'));
+    // Spot-check identifiers that must be present after the strip:
+    // a chart primitive, a panel renderer, the PANELS dispatch, and
+    // the SpecRuntime / renderSpec entry point.
+    [
+      'chartPalette', 'svgRoot', 'linearScale',
+      'renderKpiStrip', 'renderTable', 'renderChart',
+      'PANELS', 'SpecRuntime', 'renderSpec',
+    ].forEach((id) => { expect(bundled).toContain(id); });
+  });
+
+  it('leaves the runtime\'s `window.DASH = …` assignment intact', () => {
+    const bundled = moduleToClassic([cat(CHARTS_BUNDLE), cat(DASH_BUNDLE)].join('\n'));
     expect(bundled).toMatch(/window\.DASH\s*=/);
   });
 });
