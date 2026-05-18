@@ -62,6 +62,12 @@ done
 : "${SPA_ORIGIN:?--spa-origin required}"
 CH_PASSWORD="${CH_PASSWORD:-}"
 
+# Scheme+authority of the MCP URL (no path / query). Used to fill the
+# ${MCP_ORIGIN} placeholder in the handler XML's connect-src CSP so
+# the SPA's RFC 9728 discovery fetch (MCP/.well-known/...) isn't
+# blocked when MCP and SPA are on different origins.
+MCP_ORIGIN="$(printf '%s' "$MCP_URL" | sed -E 's|^(https?://[^/]+).*|\1|')"
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
@@ -177,10 +183,11 @@ ch_file_upload() {
 }
 
 echo "==> bentoclick install"
-echo "    CH:    $CH_HOST"
-echo "    DB:    $DB"
-echo "    MCP:   $MCP_URL"
-echo "    SPA:   $SPA_ORIGIN"
+echo "    CH:           $CH_HOST"
+echo "    DB:           $DB"
+echo "    MCP:          $MCP_URL"
+echo "    MCP_ORIGIN:   $MCP_ORIGIN   (substituted into handler CSP)"
+echo "    SPA:          $SPA_ORIGIN"
 
 # ---- 1. Apply schema ----
 echo "==> applying schema/*.sql"
@@ -207,10 +214,18 @@ for f in runtime/v1/*; do
 done
 
 # ---- 3. Push HTTP handlers ----
-echo "==> pushing handlers/* to user_files"
+# Substitute ${MCP_ORIGIN} in each XML before upload so the SPA's
+# Content-Security-Policy allowlists the actual MCP host. Without
+# this, the literal `${MCP_ORIGIN}` shipped to CH is silently
+# ignored by browser CSP parsers — leaving `connect-src 'self'`,
+# which only works when MCP and SPA share an origin.
+echo "==> pushing handlers/* to user_files (substituting \${MCP_ORIGIN})"
 for f in handlers/*; do
   base="$(basename "$f")"
-  ch_file_upload "dash/${base}" "$f"
+  tmp_handler="$(mktemp)"
+  sed -e "s|\${MCP_ORIGIN}|${MCP_ORIGIN}|g" "$f" > "$tmp_handler"
+  ch_file_upload "dash/${base}" "$tmp_handler"
+  rm -f "$tmp_handler"
 done
 
 # ---- 4. Render config.json + client.json ----

@@ -54,8 +54,12 @@
                          dashboard can't browser-side-exfil via fetch() to an
                          arbitrary HTTPS endpoint. CH_FETCH still works
                          because it's postMessage, not a network connect.
-                         At install time ${MCP_ORIGIN} is substituted to the
-                         deployment's MCP scheme+host. -->
+                         At install time ${MCP_ORIGIN} is substituted by
+                         install.sh (sed over each handlers/*.xml) to the
+                         deployment's MCP scheme+host (e.g. https://mcp.example.com).
+                         If you see the literal `${MCP_ORIGIN}` token in the
+                         deployed CSP, the substitution was skipped — re-run
+                         install.sh. -->
                     <Content-Security-Policy>default-src 'none';script-src 'self' 'unsafe-inline' 'unsafe-eval' https:;style-src 'self' 'unsafe-inline' https:;img-src 'self' data: https:;font-src 'self' data: https:;connect-src 'self' ${MCP_ORIGIN};frame-src 'self';object-src 'none';base-uri 'self'</Content-Security-Policy>
                     <Cache-Control>no-store</Cache-Control>
                 </http_response_headers>
