@@ -108,6 +108,69 @@ export function shouldBeCollapsible(panel, rowCount) {
   return rowCount >= 50;
 }
 
+// makePanelHead — build the design's `.panel-head` block:
+//   <div class="panel-head">
+//     <div><h2 class="ph-title">…</h2><p class="ph-sub">…</p></div>
+//     <div class="ph-meta">[event-pin] [ph-stamp]</div>
+//   </div>
+//
+// Caller passes the panel spec; returns the head element plus
+// updater callbacks for `.ph-stamp` (e.g. "1987 – 2025 · 122 ms")
+// and `.event-pin` (annotation count). Stamps default to a single
+// em-dash so layout doesn't shift before the first state.update.
+export function makePanelHead(panel) {
+  const head = document.createElement('div');
+  head.className = 'panel-head';
+  const titleWrap = document.createElement('div');
+  if (panel.title) {
+    const h = document.createElement('h2');
+    h.className = 'ph-title';
+    h.textContent = panel.title;
+    titleWrap.appendChild(h);
+  }
+  if (panel.subtitle) {
+    const sub = document.createElement('p');
+    sub.className = 'ph-sub';
+    sub.textContent = panel.subtitle;
+    titleWrap.appendChild(sub);
+  }
+  head.appendChild(titleWrap);
+  const meta = document.createElement('div');
+  meta.className = 'ph-meta';
+  const pin = document.createElement('span');
+  pin.className = 'event-pin';
+  pin.style.display = 'none';
+  meta.appendChild(pin);
+  const stamp = document.createElement('span');
+  stamp.className = 'ph-stamp';
+  stamp.textContent = '—';
+  meta.appendChild(stamp);
+  head.appendChild(meta);
+  return {
+    el: head,
+    meta,
+    setStamp(text) { stamp.textContent = text || '—'; },
+    setEventPin(text) {
+      if (!text) { pin.style.display = 'none'; return; }
+      pin.textContent = text;
+      pin.style.display = '';
+    },
+  };
+}
+
+// Format a chart's `.ph-stamp`: x-axis range + elapsed_ms.
+// Examples: "2018-01 – 2025-12 · 122 ms", "39 rows · 8 ms".
+// Caller supplies the row count or x-range string; both pieces are
+// optional and the separator only appears when both sides are set.
+export function formatStamp(range, elapsedMs) {
+  const parts = [];
+  if (range) parts.push(range);
+  if (typeof elapsedMs === 'number' && isFinite(elapsedMs)) {
+    parts.push(elapsedMs + ' ms');
+  }
+  return parts.join(' · ');
+}
+
 export function wireOnClick(target, panel, row, ctx) {
   const oc = panel.on_click;
   if (!oc || !oc.set_param || !ctx || !ctx.spec || !ctx.spec.setParam) return;

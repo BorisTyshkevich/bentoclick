@@ -210,9 +210,17 @@ export function makeDashFetch(api, chFetch, ledger) {
   return async function dashFetch(id, label, sql) {
     if (!ledger._items()[id]) ledger.add(id, label, 'primary');
     ledger.up(id, 'Pending', '—', sql);
+    const t0 = (typeof performance !== 'undefined' && performance.now)
+      ? performance.now() : Date.now();
     try {
       const r = await chFetch(sql);
-      ledger.up(id, 'OK', r.count);
+      const dt = Math.round(((typeof performance !== 'undefined' && performance.now)
+        ? performance.now() : Date.now()) - t0);
+      // `elapsedMs` is the wall-clock round-trip we just observed.
+      // Panel renderers read it from the ledger to populate `.ph-stamp`
+      // (e.g. `1987 – 2025 · 122 ms`).
+      r.elapsedMs = dt;
+      ledger.up(id, 'OK', r.count, undefined, dt);
       return r;
     } catch (e) {
       if (e && e.message === 'Auth expired') throw e;
@@ -426,6 +434,7 @@ export class SpecRuntime {
       const r = await this._ctx.fetch(state.id, panel.title || state.id, sql);
       if (state._epoch !== myEpoch) return;
       state.rows = r.rows;
+      if (typeof r.elapsedMs === 'number') state.elapsedMs = r.elapsedMs;
       state.update(r.rows);
       this._emit('panel:loaded', { id: state.id, rows: r.rows });
       resolveLoaded(state);

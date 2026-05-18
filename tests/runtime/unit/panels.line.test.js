@@ -146,4 +146,29 @@ describe('renderLine', () => {
     // Decimation cap is 8 visible ticks.
     expect(labels.length).toBeLessThanOrEqual(8);
   });
+
+  it('wraps the SVG in panel-shell + panel-head + panel-body, with auto stamp', () => {
+    const state = makeState();
+    state.elapsedMs = 73;
+    const el = PANELS.line({
+      type: 'line', title: 'L', subtitle: 'sub', x_key: 'year', series: [{ key: 'v' }],
+    }, state, ctx());
+    expect(el.classList.contains('panel-shell')).toBe(true);
+    expect(el.querySelector('.panel-head .ph-title').textContent).toBe('L');
+    expect(el.querySelector('.panel-head .ph-sub').textContent).toBe('sub');
+    state.update([{ year: 1987, v: 1 }, { year: 1990, v: 2 }, { year: 2025, v: 3 }]);
+    expect(el.querySelector('.ph-stamp').textContent).toBe('1987 – 2025 · 73 ms');
+    // Single-x case collapses to a single value, not a range.
+    state.update([{ year: 2020, v: 5 }]);
+    expect(el.querySelector('.ph-stamp').textContent).toBe('2020 · 73 ms');
+  });
+
+  it('stamp omits the ·ms suffix when no elapsedMs is known', () => {
+    const state = makeState();
+    const el = PANELS.line({
+      type: 'line', title: 'L', x_key: 'year', series: [{ key: 'v' }],
+    }, state, ctx());
+    state.update([{ year: 2024, v: 1 }, { year: 2025, v: 2 }]);
+    expect(el.querySelector('.ph-stamp').textContent).toBe('2024 – 2025');
+  });
 });

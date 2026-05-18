@@ -16,7 +16,7 @@ import {
   bandScale,
   svgEl,
 } from '../charts.js';
-import { makeCard, wireOnClick } from './_shared.js';
+import { wireOnClick, makePanelHead, formatStamp } from './_shared.js';
 import {
   chartEmpty,
   pickXTicks,
@@ -27,8 +27,13 @@ import {
 } from './chart-helpers.js';
 
 export function renderCombo(panel, state, ctx) {
-  const card = makeCard(panel);
+  const card = document.createElement('div');
+  card.className = 'card panel-shell';
+  if (panel.accent) card.setAttribute('data-accent', panel.accent);
+  const head = makePanelHead(panel);
+  card.appendChild(head.el);
   const body = document.createElement('div');
+  body.className = 'panel-body';
   card.appendChild(body);
   const xFmt = (v) => applyFormat(ctx.api, panel.x_format || 'raw', v);
   const lFmt = (v) => applyFormat(ctx.api, panel.y_format_left || 'num', v);
@@ -100,10 +105,35 @@ export function renderCombo(panel, state, ctx) {
     if (legendSeries.length) body.appendChild(buildLegend(legendSeries, (s) => s._color));
   }
 
+  function refreshStamp() {
+    const xs = (state.rows || []).map((r) => r[panel.x_key]);
+    let range = '';
+    if (xs.length) {
+      const first = String(xs[0] == null ? '' : xs[0]);
+      const last  = String(xs[xs.length - 1] == null ? '' : xs[xs.length - 1]);
+      range = first === last ? first : (first + ' – ' + last);
+    }
+    head.setStamp(formatStamp(range, state.elapsedMs));
+    // event-pin shows the annotation count once anchor rows arrive.
+    const annSrc = panel.annotations && panel.annotations.source
+      ? (ctx.spec && ctx.spec.panels && ctx.spec.panels[panel.annotations.source])
+      : null;
+    const annRows = annSrc && annSrc.rows ? annSrc.rows : null;
+    const annLabel = panel.annotations && panel.annotations.label;
+    if (annRows && annRows.length) {
+      head.setEventPin(annRows.length + ' ' + (annLabel || 'events'));
+    } else {
+      head.setEventPin('');
+    }
+  }
   state.update = function (rows) {
     state.rows = rows || [];
     draw(state.rows);
+    refreshStamp();
   };
-  subscribeAnnotations(state, panel, ctx, () => draw(state.rows || []));
+  subscribeAnnotations(state, panel, ctx, () => {
+    draw(state.rows || []);
+    refreshStamp();
+  });
   return card;
 }

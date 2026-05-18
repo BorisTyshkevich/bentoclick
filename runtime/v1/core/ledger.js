@@ -60,12 +60,13 @@ export function createLedger() {
       };
       render();
     },
-    up(id, status, rows, sql) {
+    up(id, status, rows, sql, elapsedMs) {
       const it = items[id];
       if (!it) return;
       if (status !== undefined) it.status = status;
       if (rows !== undefined) it.rows = rows;
       if (sql !== undefined) it.sql = sql;
+      if (elapsedMs !== undefined) it.elapsedMs = elapsedMs;
       render();
     },
     // Test-facing: read raw state.

@@ -25,7 +25,7 @@ import {
   bandScale,
   svgEl,
 } from '../charts.js';
-import { makeCard, wireOnClick } from './_shared.js';
+import { wireOnClick, makePanelHead, formatStamp } from './_shared.js';
 import {
   chartEmpty,
   pickXTicks,
@@ -35,8 +35,13 @@ import {
 } from './chart-helpers.js';
 
 export function renderChart(panel, state, ctx) {
-  const card = makeCard(panel);
+  const card = document.createElement('div');
+  card.className = 'card panel-shell';
+  if (panel.accent) card.setAttribute('data-accent', panel.accent);
+  const head = makePanelHead(panel);
+  card.appendChild(head.el);
   const body = document.createElement('div');
+  body.className = 'panel-body';
   card.appendChild(body);
   const xFmt = (v) => applyFormat(ctx.api, panel.x_format || 'raw', v);
   const yFmt = (v) => applyFormat(ctx.api, panel.format || 'num', v);
@@ -107,10 +112,19 @@ export function renderChart(panel, state, ctx) {
     body.appendChild(root.svg);
   }
 
+  function refreshStamp() {
+    const n = (state.rows || []).length;
+    const range = n + (n === 1 ? ' row' : ' rows');
+    head.setStamp(formatStamp(range, state.elapsedMs));
+  }
   state.update = function (rows) {
     state.rows = rows || [];
     draw(state.rows);
+    refreshStamp();
   };
-  subscribeAnnotations(state, panel, ctx, () => draw(state.rows || []));
+  subscribeAnnotations(state, panel, ctx, () => {
+    draw(state.rows || []);
+    refreshStamp();
+  });
   return card;
 }

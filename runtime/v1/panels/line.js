@@ -15,7 +15,7 @@ import {
   bandScale,
   svgEl,
 } from '../charts.js';
-import { makeCard, wireOnClick } from './_shared.js';
+import { wireOnClick, makePanelHead, formatStamp } from './_shared.js';
 import {
   resolveSeries,
   seriesValueAt,
@@ -28,8 +28,13 @@ import {
 } from './chart-helpers.js';
 
 export function renderLine(panel, state, ctx) {
-  const card = makeCard(panel);
+  const card = document.createElement('div');
+  card.className = 'card panel-shell';
+  if (panel.accent) card.setAttribute('data-accent', panel.accent);
+  const head = makePanelHead(panel);
+  card.appendChild(head.el);
   const body = document.createElement('div');
+  body.className = 'panel-body';
   card.appendChild(body);
 
   const xFmt = (v) => applyFormat(ctx.api, panel.x_format || 'raw', v);
@@ -77,10 +82,24 @@ export function renderLine(panel, state, ctx) {
     if (series.length > 1) body.appendChild(buildLegend(series, (s) => colorOf(s, series.indexOf(s))));
   }
 
+  function refreshStamp() {
+    const xs = (state.rows || []).map((r) => r[panel.x_key]);
+    let range = '';
+    if (xs.length) {
+      const first = String(xs[0] == null ? '' : xs[0]);
+      const last  = String(xs[xs.length - 1] == null ? '' : xs[xs.length - 1]);
+      range = first === last ? first : (first + ' – ' + last);
+    }
+    head.setStamp(formatStamp(range, state.elapsedMs));
+  }
   state.update = function (rows) {
     state.rows = rows || [];
     draw(state.rows);
+    refreshStamp();
   };
-  subscribeAnnotations(state, panel, ctx, () => draw(state.rows || []));
+  subscribeAnnotations(state, panel, ctx, () => {
+    draw(state.rows || []);
+    refreshStamp();
+  });
   return card;
 }
