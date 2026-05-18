@@ -17,13 +17,13 @@
 #     --ch-host=https://<host>:<port>   \   # ClickHouse HTTPS root
 #     --ch-user=<admin>                 \   # admin user with CREATE/INSERT
 #     --ch-password=<pw>                \   # admin password (or empty)
-#     --mcp-url=https://<host>/mcp      \   # MCP origin for OAuth bootstrap
+#     --mcp-url=https://<host>          \   # MCP origin (no /mcp suffix) — the SPA appends
+#                                          # /.well-known/oauth-protected-resource (RFC 9728)
 #     --spa-origin=https://<host>       \   # SPA's public origin
 #     [--db=bentoclick]                 \   # dashboard database name
 #     [--cluster='{cluster}']           \   # CH cluster name (default: the {cluster} macro)
 #     [--migrate-from=<old-db>]         \   # copy rows from old DB after schema apply
 #     [--brand-name=bentoclick]         \   # browser-tab title
-#     [--email-domain=example.com]      \   # used to expand owner localparts
 #     [--accent=#00d4aa]                    # primary accent color
 
 set -euo pipefail
@@ -37,7 +37,6 @@ DB="bentoclick"
 CLUSTER="{cluster}"
 MIGRATE_FROM=""
 BRAND_NAME="bentoclick"
-EMAIL_DOMAIN=""
 ACCENT="#00d4aa"
 
 # ---- arg parse ----
@@ -52,7 +51,6 @@ for arg in "$@"; do
     --cluster=*)      CLUSTER="${arg#*=}" ;;
     --migrate-from=*) MIGRATE_FROM="${arg#*=}" ;;
     --brand-name=*)   BRAND_NAME="${arg#*=}" ;;
-    --email-domain=*) EMAIL_DOMAIN="${arg#*=}" ;;
     --accent=*)       ACCENT="${arg#*=}" ;;
     *) echo "ERROR: unknown arg: $arg" >&2; exit 2 ;;
   esac
@@ -223,7 +221,6 @@ sed -e "s|\${CH_URL}|${CH_HOST}|g" \
     -e "s|\${SPA_ORIGIN}|${SPA_ORIGIN}|g" \
     -e "s|\${DB}|${DB}|g" \
     -e "s|\${BRAND_NAME}|${BRAND_NAME}|g" \
-    -e "s|\${EMAIL_DOMAIN}|${EMAIL_DOMAIN}|g" \
     -e "s|\${ACCENT}|${ACCENT}|g" \
     config/config.json.tmpl > "$tmp_config"
 ch_file_upload "dash/config.json" "$tmp_config"

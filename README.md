@@ -25,13 +25,12 @@ Once `make test` is green, run:
   --ch-host=https://<host>:8443 \
   --ch-user=<admin> \
   --ch-password=<pw> \
-  --mcp-url=https://<mcp-host>/mcp \
+  --mcp-url=https://<mcp-host> \
   --spa-origin=https://<host> \
   [--db=bentoclick]                  # default; the CH database name
   [--cluster='{cluster}']            # default; CH expands the macro
   [--migrate-from=<old-db>]          # if renaming from a prior install
   [--brand-name=bentoclick]          # browser-tab title
-  [--email-domain=example.com]       # used to expand owner localparts
   [--accent='#00d4aa']
 ```
 

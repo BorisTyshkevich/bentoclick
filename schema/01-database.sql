@@ -179,18 +179,22 @@ SELECT
     now()                                                         AS updated_at
 FROM ${DB}.dashboards_raw;
 
--- whoami — resolves the caller's identity AND the dashboard SPA URL
--- base in one round-trip. MCP-attached agents MUST read spa_origin
+-- dashboards_prefix — returns the SPA URL prefix the caller should
+-- append a slug to in order to produce a share URL. Owner segment is
+-- the URL-encoded full email so distinct identities never collide on
+-- the same path (e.g. foo@altinity.com vs foo@gmail.com).
+-- MCP-attached agents MUST read spa_origin / my_dashboards_prefix
 -- from here rather than guessing — the MCP origin and the SPA origin
 -- are different hosts.
-CREATE OR REPLACE VIEW ${DB}.whoami
+CREATE OR REPLACE VIEW ${DB}.dashboards_prefix
   ON CLUSTER '{cluster}' AS
 SELECT
-    currentUser()                                              AS email,
-    splitByChar('@', currentUser())[1]                         AS localpart,
+    currentUser()                                              AS owner,
     '${SPA_ORIGIN}'                                            AS spa_origin,
     concat('${SPA_ORIGIN}', '/v/',
-           splitByChar('@', currentUser())[1], '/')            AS my_dashboards_prefix;
+           encodeURLComponent(currentUser()), '/')             AS my_dashboards_prefix;
+
+DROP VIEW IF EXISTS ${DB}.whoami ON CLUSTER '{cluster}';
 
 -- Definer-user grants. Live at the END of this file so the tables
 -- they reference already exist. The definer needs to SELECT from

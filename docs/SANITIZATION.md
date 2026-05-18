@@ -105,7 +105,7 @@ No INSERT on `dashboards`. No INSERT on the MV. No way to skip the
 sanitizer.
 
 The reader role gets SELECT on the whole database (the SPA needs to
-read both `dashboards` and `whoami`).
+read both `dashboards` and `dashboards_prefix`).
 
 ## Defense in depth
 

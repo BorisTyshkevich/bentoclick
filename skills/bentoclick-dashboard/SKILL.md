@@ -49,14 +49,10 @@ replaces the previous row.
 
 ## Share URL
 
-Read once per conversation:
-
-```sql
-SELECT spa_origin, localpart, my_dashboards_prefix FROM bentoclick.whoami
-```
-
-Share URL = `<my_dashboards_prefix><slug>`. Never guess the host —
-the MCP origin and the SPA origin are different.
+Call the **`get_dashboards_prefix`** MCP tool once per conversation. It
+returns `{owner, spa_origin, my_dashboards_prefix}`. Share URL =
+`<my_dashboards_prefix><slug>`. Never guess the host — the MCP origin
+and the SPA origin are different.
 
 ## Params
 

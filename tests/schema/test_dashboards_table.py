@@ -197,14 +197,24 @@ def test_insert_values_form_owner_quirk(ch):
     )
 
 
-def test_whoami_view_returns_expected_fields(ch):
+def test_dashboards_prefix_view_returns_expected_fields(ch):
     rows = ch.query(
-        f"SELECT email, localpart, spa_origin, my_dashboards_prefix "
-        f"FROM {ch.db_name}.whoami"
+        f"SELECT owner, spa_origin, my_dashboards_prefix "
+        f"FROM {ch.db_name}.dashboards_prefix"
     ).result_rows
     assert len(rows) == 1
-    email, localpart, spa_origin, prefix = rows[0]
-    assert email == "default"
-    assert localpart == "default"
+    owner, spa_origin, prefix = rows[0]
+    # Test runs as the `default` user; no `@` to encode.
+    assert owner == "default"
     assert spa_origin.startswith("http"), f"spa_origin: {spa_origin}"
-    assert prefix == f"{spa_origin}/v/{localpart}/"
+    assert prefix == f"{spa_origin}/v/{owner}/"
+
+
+def test_dashboards_prefix_encodes_at_sign(ch):
+    # The view's URL is built via encodeURLComponent(currentUser()); when
+    # the user is `default` there's no `@` to encode, so verify the
+    # encoding function itself round-trips an email-style identity.
+    row = ch.query(
+        "SELECT encodeURLComponent('foo@bar.com')"
+    ).result_rows[0]
+    assert row[0] == "foo%40bar.com"

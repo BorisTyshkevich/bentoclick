@@ -6,7 +6,7 @@
 -- (SQL SECURITY DEFINER, see 01-database.sql).
 --
 -- Reader role gets SELECT on the whole database so the SPA can read
--- the read target, the whoami view, and any auxiliary tables.
+-- the read target, the dashboards_prefix view, and any auxiliary tables.
 --
 -- The trailing REVOKE is defense in depth: even if a future role
 -- somewhere on the cluster (an operator account, a `<token>`

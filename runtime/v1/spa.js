@@ -30,7 +30,6 @@ var CFG       = null;                    // populated by loadConfig() at boot
 var MCP       = null;                    // CFG.mcp_url    — OAuth AS / RS root
 var CH_URL    = null;                    // CFG.ch_url     — data-path origin
 var DB        = null;                    // CFG.db         — dashboards database name
-var DOMAIN    = null;                    // CFG.email_domain (e.g. "altinity.com") — '' to disable expansion
 var TOK_KEY   = 'mcp_tok';
 var OLD_CID_KEYS = ['mcp_cid', 'mcp_cid_v2'];
 var CID_KEY   = 'mcp_cid_v3';
@@ -116,7 +115,6 @@ async function loadConfig() {
   MCP    = j.mcp_url.replace(/\/$/, '');
   CH_URL = j.ch_url.replace(/\/$/, '');
   DB     = j.db || 'dashboards';
-  DOMAIN = j.email_domain ? ('@' + j.email_domain) : '';
   if (j.brand_name) document.title = j.brand_name;
 }
 
@@ -258,13 +256,9 @@ async function chQuery(sql) {
 
 async function fetchDashboard(owner, slug) {
   assertSafe('owner', owner); assertSafe('slug', slug);
-  // URL convention is email localpart; DB stores full email (the MV
-  // computes owner = currentUser()). When DOMAIN is configured, accept
-  // both localpart and full-email forms; otherwise require full email.
-  var forms = owner.indexOf('@') >= 0 ? [owner]
-            : DOMAIN              ? [owner, owner + DOMAIN]
-            :                       [owner];
-  var inList = forms.map(sqlStr).join(', ');
+  // URL owner segment is the URL-encoded full email (e.g.
+  // foo%40altinity.com); parseRoute() has already decoded it. DB stores
+  // full email (the MV computes owner = currentUser()), so match directly.
   // v1 schema: structured columns. We read them as JSON strings via
   // toJSONString() so the SPA can rebuild the spec object client-side
   // without depending on the wire format of nested JSON columns.
@@ -273,7 +267,7 @@ async function fetchDashboard(owner, slug) {
           + ' toJSONString(panels) AS panels_json,'
           + ' toJSONString(meta) AS meta_json'
           + ' FROM ' + DB + '.dashboards FINAL'
-          + ' WHERE owner IN (' + inList + ')'
+          + ' WHERE owner = ' + sqlStr(owner)
           + ' AND slug = ' + sqlStr(slug)
           + ' LIMIT 1';
   var d = await chQuery(sql);
@@ -467,9 +461,9 @@ function renderLoginCard(returnTo) {
 }
 
 async function renderIndex() {
-  // Run whoami + listing through chQuery (top-level fetch — no iframe RPC).
-  var whoamiResp = await chQuery('SELECT email FROM ' + DB + '.whoami');
-  var whoami = jsonCompactRows(whoamiResp)[0] || { email: '?' };
+  // Identity + listing through chQuery (top-level fetch — no iframe RPC).
+  var ownerResp = await chQuery('SELECT owner FROM ' + DB + '.dashboards_prefix');
+  var me = jsonCompactRows(ownerResp)[0] || { owner: '?' };
 
   var listResp = await chQuery(
     'SELECT slug, title, owner,' +
@@ -495,7 +489,7 @@ async function renderIndex() {
       '<span class="logo-name">Altinity Dashboards</span>' +
       '<span class="env-chip">' + escHtml(location.host) + '</span>' +
       '<span class="spacer"></span>' +
-      '<span class="user-email" title="' + escHtml(whoami.email) + '">' + escHtml(whoami.email) + '</span>' +
+      '<span class="user-email" title="' + escHtml(me.owner) + '">' + escHtml(me.owner) + '</span>' +
       '<button class="hd-btn" id="logout" type="button">Sign out</button>' +
     '</header>' +
     '<main class="app-main">' +

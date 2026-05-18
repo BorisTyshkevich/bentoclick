@@ -30,6 +30,7 @@ cat <<SQL | ch_query
 DROP TABLE    IF EXISTS ${DB}.dashboards_mv SYNC;
 DROP TABLE    IF EXISTS ${DB}.dashboards    SYNC;
 DROP TABLE    IF EXISTS ${DB}.dashboards_raw SYNC;
+DROP VIEW     IF EXISTS ${DB}.dashboards_prefix;
 DROP VIEW     IF EXISTS ${DB}.whoami;
 DROP ROLE     IF EXISTS ${DB}_reader_role;
 DROP ROLE     IF EXISTS ${DB}_writer_role;
