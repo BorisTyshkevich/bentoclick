@@ -169,6 +169,30 @@ describe('renderCombo', () => {
     expect(tip.classList.contains('on')).toBe(false);
   });
 
+  it('clicking a legend item fades it and hides matching SVG elements', () => {
+    const state = makeState();
+    const el = PANELS.combo(basic, state, ctx());
+    state.update([
+      { year: 2000, flights: 1, margin: 1, who: 'WN' },
+      { year: 2001, flights: 2, margin: 1, who: 'DL' },
+      { year: 2002, flights: 3, margin: 1, who: 'WN' },
+    ]);
+    const wnItem = el.querySelector('.chart-legend .item[data-legend-key="bar:WN"]');
+    expect(wnItem).not.toBeNull();
+    // 2 WN bars + 1 DL bar present initially.
+    expect(el.querySelectorAll('[data-legend-key="bar:WN"]').length).toBe(3); // 2 rects + 1 legend item
+    wnItem.click();
+    expect(wnItem.classList.contains('off')).toBe(true);
+    // Bars matching bar:WN are display:none; the legend item itself is not hidden.
+    const wnBars = Array.from(el.querySelectorAll('rect[data-legend-key="bar:WN"]'));
+    wnBars.forEach((b) => expect(b.style.display).toBe('none'));
+    expect(wnItem.style.display).toBe('');
+    // Click again restores.
+    wnItem.click();
+    expect(wnItem.classList.contains('off')).toBe(false);
+    wnBars.forEach((b) => expect(b.style.display).toBe(''));
+  });
+
   it('overlays annotations from a sibling panel', () => {
     const stub = makeSpecStub({
       flips: { rows: [{ year: 2001, who: 'WN→DL' }] },

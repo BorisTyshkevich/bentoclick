@@ -25,6 +25,7 @@ import {
   buildLegend,
   uniquePreserveOrder,
   installHoverCrosshair,
+  installLegendToggle,
   subscribeAnnotations,
 } from './chart-helpers.js';
 
@@ -71,12 +72,16 @@ export function renderCombo(panel, state, ctx) {
       const cx = xScale(xs[i]);
       const y = lScale(v);
       const h = Math.abs(zeroY - y);
-      const color = barsCfg.color_by
-        ? colorFor(r[barsCfg.color_by])
-        : chartPalette[0];
+      const cat = barsCfg.color_by ? r[barsCfg.color_by] : null;
+      const color = cat != null ? colorFor(cat) : chartPalette[0];
+      // `data-legend-key` matches the value the legend item was stamped
+      // with; click-toggle (installLegendToggle) flips this rect's
+      // display from the legend.
+      const legendKey = cat != null ? ('bar:' + cat) : 'bar';
       const rect = svgEl('rect', {
         x: cx - bw / 2, y: Math.min(zeroY, y), width: bw, height: h,
         fill: color, class: 'chart-bar',
+        'data-legend-key': legendKey,
       });
       wireOnClick(rect, panel, r, ctx);
       root.plot.appendChild(rect);
@@ -88,11 +93,13 @@ export function renderCombo(panel, state, ctx) {
     const pts = rows.map((r, i) => [xScale(xs[i]), yL(lineVals[i])]);
     root.plot.appendChild(svgEl('path', {
       d: linePath(pts), class: 'chart-line', stroke: lineColor,
+      'data-legend-key': 'line',
     }));
     pts.forEach(([cx, cy], i) => {
       if (!isFinite(cx) || !isFinite(cy)) return;
       const dot = svgEl('circle', {
         cx, cy, r: 3, fill: lineColor, class: 'chart-point',
+        'data-legend-key': 'line',
       });
       wireOnClick(dot, panel, rows[i], ctx);
       root.plot.appendChild(dot);
@@ -138,7 +145,11 @@ export function renderCombo(panel, state, ctx) {
     if (lineCfg.label) {
       items.push({ kind: 'line', label: lineCfg.label, color: lineColor, key: 'line' });
     }
-    if (items.length) body.appendChild(buildLegend(items));
+    if (items.length) {
+      const legend = buildLegend(items);
+      body.appendChild(legend);
+      installLegendToggle(legend, body);
+    }
   }
 
   function refreshStamp() {

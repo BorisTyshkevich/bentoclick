@@ -182,6 +182,29 @@ export function buildLegend(items) {
   return wrap;
 }
 
+// installLegendToggle — clicking a `.chart-legend .item[data-legend-key]`
+// toggles `.off` on the item (CSS fades it via `opacity: 0.4`) and
+// flips `display` on every `[data-legend-key="…"]` element under
+// `container` whose key matches. Renderers tag the bars/line/points
+// they want togglable with the same `data-legend-key` they wrote
+// onto the legend item — see combo.js (`bar:<category>` / `line`)
+// and line.js (`line:<seriesKey>`).
+export function installLegendToggle(legend, container) {
+  if (!legend) return;
+  legend.querySelectorAll('.item[data-legend-key]').forEach((item) => {
+    item.addEventListener('click', () => {
+      const key = item.getAttribute('data-legend-key');
+      const off = item.classList.toggle('off');
+      container.querySelectorAll('[data-legend-key="' + key + '"]').forEach((el) => {
+        // Only mutate SVG/HTML chart elements — never the legend item
+        // (which has its own selector under `.chart-legend`).
+        if (el === item) return;
+        el.style.display = off ? 'none' : '';
+      });
+    });
+  });
+}
+
 // uniquePreserveOrder — small util used by renderers to derive a
 // stable legend for a `color_by` column without dropping the first-seen
 // order of values across the rows.

@@ -25,6 +25,7 @@ import {
   drawAnnotations,
   buildLegend,
   installHoverCrosshair,
+  installLegendToggle,
   subscribeAnnotations,
 } from './chart-helpers.js';
 
@@ -62,17 +63,20 @@ export function renderLine(panel, state, ctx) {
     root.plot.appendChild(axisBottom({ ticks: pickXTicks(xs), scale: xScale, iw: root.iw, ih: root.ih, format: xFmt }));
     const colorOf = (s, i) => s.color || chartPalette[i % chartPalette.length];
     series.forEach((s, i) => {
+      const legendKey = 'line:' + (s.key || s.label || i);
       const pts = xs.map((x) => [xScale(x), yScale(seriesValueAt(panel, rows, byX, s, x))]);
       const path = svgEl('path', {
         d: linePath(pts),
         class: 'chart-line',
         stroke: colorOf(s, i),
+        'data-legend-key': legendKey,
       });
       root.plot.appendChild(path);
       pts.forEach(([cx, cy], pi) => {
         if (!isFinite(cx) || !isFinite(cy)) return;
         const dot = svgEl('circle', {
           cx, cy, r: 3, fill: colorOf(s, i), class: 'chart-point',
+          'data-legend-key': legendKey,
         });
         const xv = xs[pi];
         if (panel.on_click) {
@@ -102,7 +106,9 @@ export function renderLine(panel, state, ctx) {
         color: colorOf(s, i),
         key: 'line:' + (s.key || s.label || i),
       }));
-      body.appendChild(buildLegend(items));
+      const legend = buildLegend(items);
+      body.appendChild(legend);
+      installLegendToggle(legend, body);
     }
   }
 
