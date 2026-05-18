@@ -23,10 +23,26 @@ the `--ch-user` admin:
    asset has a per-cluster `_asset_<safe-name>` File-engine table
    created `ON CLUSTER … IF NOT EXISTS`; the INSERT uses
    `engine_file_truncate_on_insert = 1` so re-deploys overwrite.
-4. **Push `handlers/*`** to `user_files/dash/<file>`. Each XML is
-   piped through `sed` to substitute `${MCP_ORIGIN}` with the
-   scheme+authority of `--mcp-url` (e.g. `https://mcp.example.com`)
-   before upload. See [Templating](#templating) below.
+   Assets: `spa.html`, `spa.js`, `spa-helpers.js`, `dash.js`,
+   `charts.js`, `dash-theme.css`, `tweaks.js`, `oauth-callback.html`.
+
+   **`dash.js` and `charts.js` are bundles.** Source lives split
+   across `runtime/v1/{core,panels,charts}/` for readability, but
+   the iframe boot fetches a single `/lib/v1/dash.js` and
+   `/lib/v1/charts.js`. `install.sh` concatenates each tree in
+   topological order at deploy time and uploads the result. The
+   concat order is fixed in `install.sh:bundle_concat` calls; if
+   you add a new file under `core/`, `panels/`, or `charts/`,
+   thread it into the matching invocation. The bundle test at
+   `tests/runtime/unit/module-to-classic.test.js` mirrors the same
+   file list and will fail if they drift apart.
+4. **Push `handlers/bentoclick.xml`** to `user_files/dash/bentoclick.xml`
+   with `${MCP_ORIGIN}` substituted (scheme+authority of `--mcp-url`,
+   e.g. `https://mcp.example.com`). See [Templating](#templating)
+   below. **This is a reference copy only** — CH does not read HTTP
+   handler config from `user_files`. The config.d registration is the
+   caller's responsibility; see
+   [Config.d registration (ACM)](#configd-registration-acm) below.
 5. **Render `config/*.json.tmpl`** with the install-time args
    (`${CH_URL}`, `${MCP_URL}`, `${SPA_ORIGIN}`, `${DB}`,
    `${BRAND_NAME}`, `${ACCENT}`) and upload as
@@ -38,6 +54,36 @@ the `--ch-user` admin:
    unless they log in as the admin. Re-running refreshes
    `updated_at`; it doesn't touch user-saved dashboards because
    they have a different `(owner, slug)` key.
+
+## Config.d registration
+
+`install.sh` does not touch cluster config.d — that is the caller's
+responsibility. `handlers/bentoclick.xml` must be placed (or
+registered) as a config.d fragment before `/app` will respond.
+
+**`name=` attribute requirement:** every `<rule>` in `bentoclick.xml`
+carries a unique `name=` slug. This is required whenever multiple
+config.d files each define `<http_handlers>`. Without it, CH merges
+sibling `<rule>` elements positionally across files, and later files
+silently overwrite earlier files' rules slot-for-slot (upstream:
+[ClickHouse#70636](https://github.com/ClickHouse/ClickHouse/issues/70636),
+reproduced on 26.1.x).
+
+**`<defaults/>` ordering:** `bentoclick.xml` includes `<defaults/>`
+at the end of its handler list. If the caller adds other config.d
+files that also define `<http_handlers>`, `<defaults/>` must remain
+in the alphabetically last file — the built-in `/play` handler added
+by `<defaults/>` matches by prefix and shadows any custom
+`regex:^/play$` rule that appears after it in the merged list.
+
+To apply (substitute real MCP origin before registering):
+
+```bash
+MCP_ORIGIN="https://mcp.example.com"
+sed "s|\${MCP_ORIGIN}|$MCP_ORIGIN|g" handlers/bentoclick.xml \
+  > /etc/clickhouse-server/config.d/bentoclick.xml
+# then reload / restart ClickHouse
+```
 
 ## Templating
 
@@ -163,6 +209,6 @@ There is no built-in rollback. Options:
 |---|---|---|
 | `/app` loads, dashboards show "renderSpec error" | Stale `dash.js` cached by browser | Hard reload. If persists, check `curl $SPA/lib/v1/dash.js` matches `runtime/v1/dash.js` |
 | OAuth login redirects then fails silently | CSP blocking MCP discovery | `curl -I $SPA/app` and look for literal `${MCP_ORIGIN}` in CSP. Re-run install.sh |
-| `/v/<owner>/<slug>` 404 | Handler XML overwritten by another `config.d` fragment | Confirm `<rule name="…">` is present on every rule (`grep '<rule' handlers/bentoclick.xml`). See [upstream issue 70636](https://github.com/ClickHouse/ClickHouse/issues/70636) |
+| `/v/<owner>/<slug>` 404 | Handler XML overwritten by another `config.d` fragment | `bentoclick.xml` carries `name=` on every `<rule>` (fix for [GH#70636](https://github.com/ClickHouse/ClickHouse/issues/70636)). If other config.d files in the deployment lack `name=`, their rules can overwrite bentoclick's. Verify: `grep 'name="bentoclick-' /var/lib/clickhouse/preprocessed_configs/config.xml` — all 10 bentoclick rule slugs should appear. |
 | User sees old dashboards listed in `/app` | `/app` index queries `dashboards FINAL WHERE owner = currentUser()` — they're saved as a different OAuth identity | Check `currentUser()` in CH for that bearer matches the row's `owner` |
 | Sample dashboards missing | Samples are owned by the installer admin, not the viewer | Log in as admin to see them, or copy spec into user's account via the `save_dashboard` MCP tool |

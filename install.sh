@@ -207,8 +207,76 @@ if [[ -n "${MIGRATE_FROM}" ]]; then
 fi
 
 # ---- 2. Push runtime assets ----
+#
+# dash.js and charts.js source is split across runtime/v1/{core,panels,charts}/
+# for human-readability, but the iframe boot fetches a single
+# /lib/v1/dash.js and a single /lib/v1/charts.js. So we concatenate
+# each tree in topological order at deploy time and upload the
+# resulting bundle as the file the handler serves.
+#
+# The iframe's `moduleToClassic` strips `import` / `export` at boot,
+# so the bundled file can keep ES-module syntax — useful for direct
+# inspection and for vitest, which loads each module natively.
+#
+# Order matters within each bundle: non-hoisted declarations
+# (`const`, `class`) must appear before any reference. Functions
+# are hoisted, so they can be in any order within their file.
+
+bundle_concat() {
+  # $1 = output tempfile, $2..$N = source files in topological order.
+  local out="$1"; shift
+  : > "$out"
+  for src in "$@"; do
+    if [[ ! -f "$src" ]]; then
+      echo "ERROR: bundle source missing: $src" >&2
+      return 1
+    fi
+    printf '\n// ==== bundle: %s ====\n' "$src" >> "$out"
+    cat "$src" >> "$out"
+  done
+}
+
+echo "==> bundling runtime/v1/charts.js"
+tmp_charts="$(mktemp)"
+bundle_concat "$tmp_charts" \
+  runtime/v1/charts/palette.js \
+  runtime/v1/charts/scales.js \
+  runtime/v1/charts/svg.js \
+  runtime/v1/charts.js
+
+echo "==> bundling runtime/v1/dash.js"
+tmp_dash="$(mktemp)"
+bundle_concat "$tmp_dash" \
+  runtime/v1/core/fmt.js \
+  runtime/v1/core/interpolate.js \
+  runtime/v1/core/run-state.js \
+  runtime/v1/core/markdown.js \
+  runtime/v1/core/ledger.js \
+  runtime/v1/core/badge.js \
+  runtime/v1/core/csv.js \
+  runtime/v1/panels/_shared.js \
+  runtime/v1/panels/chart-helpers.js \
+  runtime/v1/panels/kpi-strip.js \
+  runtime/v1/panels/table.js \
+  runtime/v1/panels/bars.js \
+  runtime/v1/panels/markdown.js \
+  runtime/v1/panels/hero.js \
+  runtime/v1/panels/callouts.js \
+  runtime/v1/panels/html.js \
+  runtime/v1/panels/script.js \
+  runtime/v1/panels/line.js \
+  runtime/v1/panels/combo.js \
+  runtime/v1/panels/chart.js \
+  runtime/v1/dash.js
+
 echo "==> pushing runtime/v1/* to user_files"
-for f in runtime/v1/*; do
+ch_file_upload "dash/charts.js" "$tmp_charts"
+ch_file_upload "dash/dash.js"   "$tmp_dash"
+rm -f "$tmp_charts" "$tmp_dash"
+
+# Other runtime files upload verbatim (no bundling needed).
+for f in runtime/v1/spa.html runtime/v1/spa.js runtime/v1/spa-helpers.js \
+         runtime/v1/tweaks.js runtime/v1/dash-theme.css runtime/v1/oauth-callback.html; do
   base="$(basename "$f")"
   ch_file_upload "dash/${base}" "$f"
 done
