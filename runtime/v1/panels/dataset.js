@@ -65,29 +65,20 @@ export function renderDataset(panel, state) {
     startCollapsed: panel.state !== 'visible',
   });
 
-  // Cap the preview at this many rows so a dataset returning 10k+ rows
-  // doesn't render a 10k-row table into the DOM (which kills layout
-  // performance for every panel below it). Authors can raise via
-  // `panel.preview_limit`; the dataset still publishes the full rows
-  // through `state.rows` to source consumers.
-  const previewLimit = (typeof panel.preview_limit === 'number' && panel.preview_limit > 0)
-    ? Math.floor(panel.preview_limit) : 50;
   state.update = function (rows) {
     const n = rows ? rows.length : 0;
-    countTag.textContent = 'rows: ' + n
-      + (n > previewLimit ? ' (showing first ' + previewLimit + ')' : '');
+    countTag.textContent = 'rows: ' + n;
     setRowCount(n);
     if (!n) {
       thead.innerHTML = '';
       tbody.innerHTML = '<tr><td style="color:var(--fg-dim)">no rows</td></tr>';
       return;
     }
-    const preview = n > previewLimit ? rows.slice(0, previewLimit) : rows;
-    const cols = Object.keys(preview[0]);
+    const cols = Object.keys(rows[0]);
     thead.innerHTML = '<tr>' + cols.map((c) =>
       '<th>' + fmt.esc(c) + '</th>'
     ).join('') + '</tr>';
-    tbody.innerHTML = preview.map((r) =>
+    tbody.innerHTML = rows.map((r) =>
       '<tr>' + cols.map((c) => {
         const v = r[c];
         return '<td>' + fmt.esc(v == null ? '' : String(v)) + '</td>';

@@ -101,23 +101,11 @@ describe('renderDataset', () => {
     expect(el.querySelector('tbody img')).toBeNull();
   });
 
-  it('caps the preview to 50 rows by default and annotates the meta', () => {
+  it('renders every row of the result set (no preview cap)', () => {
     const state = mkState();
     const el = renderDataset({ id: 'd', type: 'dataset', state: 'visible' }, state);
-    state.update(Array.from({ length: 1000 }, (_, i) => ({ n: i })));
-    expect(el.querySelectorAll('tbody tr').length).toBe(50);
-    expect(el.querySelector('.dataset-rows').textContent).toContain('rows: 1000');
-    expect(el.querySelector('.dataset-rows').textContent).toContain('showing first 50');
-  });
-
-  it('preview_limit lets authors widen or shrink the cap', () => {
-    const state = mkState();
-    const el = renderDataset(
-      { id: 'd', type: 'dataset', state: 'visible', preview_limit: 5 },
-      state,
-    );
-    state.update(Array.from({ length: 100 }, (_, i) => ({ n: i })));
-    expect(el.querySelectorAll('tbody tr').length).toBe(5);
-    expect(el.querySelector('.dataset-rows').textContent).toContain('showing first 5');
+    state.update(Array.from({ length: 250 }, (_, i) => ({ n: i })));
+    expect(el.querySelectorAll('tbody tr').length).toBe(250);
+    expect(el.querySelector('.dataset-rows').textContent).toBe('rows: 250');
   });
 });
